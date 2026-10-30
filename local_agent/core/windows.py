@@ -7,7 +7,6 @@ import numpy as np
 import cv2
 from PIL import ImageGrab
 
-# Garante que a pasta local_agent e a raiz estejam no path mesmo rodando o arquivo direto
 PASTA_CORE = os.path.dirname(os.path.abspath(__file__))
 PASTA_AGENT = os.path.dirname(PASTA_CORE)
 if PASTA_AGENT not in sys.path:
@@ -16,7 +15,7 @@ if PASTA_AGENT not in sys.path:
 try:
     from config import PADRAO_TITULO
 except ImportError:
-    PADRAO_TITULO = re.compile(r"Name:\s*([^\s\|\-]+)", re.IGNORECASE)
+    PADRAO_TITULO = None
 
 try:
     import win32gui
@@ -84,20 +83,22 @@ def capturar_tela_janela_fundo(hwnd, rel_box):
     return None
 
 def extrair_nome_inteligente(titulo: str, pid: int) -> str:
-    if PADRAO_TITULO:
-        m = PADRAO_TITULO.search(titulo)
-        if m:
-            return m.group(1).strip()
-
-    padroes_extras = [
-        r"Name\s*[:=-]\s*([^\s\|\-\]\)]+)",
-        r"Character\s*[:=-]\s*([^\s\|\-\]\)]+)",
+    # 1. Busca direta tanto em Portugues (Nome:) quanto em Ingles (Name:)
+     padroes_extras = [
+        r"N[ao]me\s*[:=-]\s*([^\s\|\-\]\)]+)",
+        r"Char(?:acter)?\s*[:=-]\s*([^\s\|\-\]\)]+)",
         r"\[\s*([A-Za-z0-9_\-]+)\s*\]"
     ]
     for p in padroes_extras:
         m2 = re.search(p, titulo, re.IGNORECASE)
         if m2 and m2.group(1).lower() not in ("theclassic", "mainmu", "mu"):
             return m2.group(1).strip()
+
+    # 2. Fallback para o PADRAO_TITULO do config.py caso exista
+    if PADRAO_TITULO:
+        m = PADRAO_TITULO.search(titulo)
+        if m:
+            return m.group(1).strip()
 
     return f"PID:{pid}"
 
@@ -115,9 +116,11 @@ def obter_clientes_mainmu():
 
                 pid = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                if pid.value and any(k.lower() in titulo.lower() for k in ("theclassic mu", "name:", "level", "mainmu")):
+                if pid.value and any(k in titulo.lower() for k in ("theclassic mu", "name:", "nome:", "level", "mainmu")):
                     atual = janelas_por_pid.get(pid.value)
-                    if not atual or ("name:" in titulo.lower() and "name:" not in atual["titulo"].lower()):
+                    tem_nome_novo = ("name:" in titulo.lower() or "nome:" in titulo.lower())
+                    tem_nome_atual = atual and ("name:" in atual["titulo"].lower() or "nome:" in atual["titulo"].lower())
+                    if not atual or (tem_nome_novo and not tem_nome_atual):
                         janelas_por_pid[pid.value] = {"hwnd": hwnd, "titulo": titulo}
         return True
 
