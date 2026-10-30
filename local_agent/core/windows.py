@@ -1,9 +1,22 @@
+import os
+import sys
 import ctypes
 from ctypes import wintypes
+import re
 import numpy as np
 import cv2
 from PIL import ImageGrab
-from config import PADRAO_TITULO
+
+# Garante que a pasta local_agent e a raiz estejam no path mesmo rodando o arquivo direto
+PASTA_CORE = os.path.dirname(os.path.abspath(__file__))
+PASTA_AGENT = os.path.dirname(PASTA_CORE)
+if PASTA_AGENT not in sys.path:
+    sys.path.insert(0, PASTA_AGENT)
+
+try:
+    from config import PADRAO_TITULO
+except ImportError:
+    PADRAO_TITULO = re.compile(r"Name:\s*([^\s\|\-]+)", re.IGNORECASE)
 
 try:
     import win32gui
@@ -70,6 +83,24 @@ def capturar_tela_janela_fundo(hwnd, rel_box):
 
     return None
 
+def extrair_nome_inteligente(titulo: str, pid: int) -> str:
+    if PADRAO_TITULO:
+        m = PADRAO_TITULO.search(titulo)
+        if m:
+            return m.group(1).strip()
+
+    padroes_extras = [
+        r"Name\s*[:=-]\s*([^\s\|\-\]\)]+)",
+        r"Character\s*[:=-]\s*([^\s\|\-\]\)]+)",
+        r"\[\s*([A-Za-z0-9_\-]+)\s*\]"
+    ]
+    for p in padroes_extras:
+        m2 = re.search(p, titulo, re.IGNORECASE)
+        if m2 and m2.group(1).lower() not in ("theclassic", "mainmu", "mu"):
+            return m2.group(1).strip()
+
+    return f"PID:{pid}"
+
 def obter_clientes_mainmu():
     janelas_por_pid = {}
     WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -84,16 +115,17 @@ def obter_clientes_mainmu():
 
                 pid = wintypes.DWORD()
                 user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                if pid.value and any(k in titulo for k in ("TheClassic MU", "Name:", "Level", "MainMU")):
-                    janelas_por_pid[pid.value] = {"hwnd": hwnd, "titulo": titulo}
+                if pid.value and any(k.lower() in titulo.lower() for k in ("theclassic mu", "name:", "level", "mainmu")):
+                    atual = janelas_por_pid.get(pid.value)
+                    if not atual or ("name:" in titulo.lower() and "name:" not in atual["titulo"].lower()):
+                        janelas_por_pid[pid.value] = {"hwnd": hwnd, "titulo": titulo}
         return True
 
     user32.EnumWindows(WNDENUMPROC(callback), 0)
 
     clientes = {}
     for pid, info in janelas_por_pid.items():
-        m = PADRAO_TITULO.search(info["titulo"])
-        name = m.group(1) if m else f"PID:{pid}"
+        name = extrair_nome_inteligente(info["titulo"], pid)
         geom = obter_geometria_cliente(info["hwnd"])
         res_str = f"{geom[2]}x{geom[3]}" if geom else "Minimizado"
 
@@ -104,3 +136,11 @@ def obter_clientes_mainmu():
             "resolucao": res_str
         }
     return clientes
+
+if __name__ == "__main__":
+    print("=== TESTE DE DETECCAO DE JANELAS MU ===")
+    detectados = obter_clientes_mainmu()
+    if not detectados:
+        print("Nenhuma janela do MU encontrada aberta.")
+    for pid, dados in detectados.items():
+        print(f"PID: {pid} | Char: {dados['name']} | Res: {dados['resolucao']} | Titulo Real: '{dados['titulo']}'")
