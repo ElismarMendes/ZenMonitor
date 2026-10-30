@@ -4,6 +4,8 @@ import sys
 import os
 import requests
 import pytesseract
+import win32gui
+import win32process
 
 # Configura o caminho padrao do Tesseract no Windows
 tesseract_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -22,6 +24,39 @@ VPS_URL = "https://zen.brautosystem.com.br/api/v1/report"
 MACHINE_ID = socket.gethostname()
 INTERVALO_SEGUNDOS = 5
 
+def obter_titulo_janela_por_pid(target_pid):
+    """Busca o título real da janela aberta no Windows associada ao PID do jogo"""
+    titulo_encontrado = ""
+    def enum_windows_callback(hwnd, extra):
+        nonlocal titulo_encontrado
+        if win32gui.IsWindowVisible(hwnd):
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            if pid == target_pid:
+                txt = win32gui.GetWindowText(hwnd).strip()
+                if txt:
+                    titulo_encontrado = txt
+    try:
+        win32gui.EnumWindows(enum_windows_callback, None)
+    except Exception:
+        pass
+    return titulo_encontrado
+
+def limpar_nome_personagem(titulo_janela, pid):
+    """Limpa o título da janela para extrair um nome de personagem bonito"""
+    if not titulo_janela:
+        return f"Char-{pid}"
+    
+    # Se o título da janela for muito genérico (ex: "MU", "Main"), usa o PID
+    if titulo_janela.lower() in ["mu", "main", "muonline"]:
+        return f"Char-{pid}"
+        
+    # Remove sufixos comuns se houver (ex: "MU - ReDMooN" vira "ReDMooN")
+    if " - " in titulo_janela:
+        partes = titulo_janela.split(" - ")
+        return partes[-1].strip() # Pega a última parte geralmente associada ao char
+        
+    return titulo_janela
+
 def iniciar_agente():
     try:
         monitor = MonitorService()
@@ -38,24 +73,22 @@ def iniciar_agente():
         try:
             clientes_payload = []
 
-            # 1. Tenta coletar usando o metodo padrao se existir
             if hasattr(monitor, "listar_contas_ativas"):
                 clientes = monitor.listar_contas_ativas()
                 
-                # Se retornar dicionario (ex: {pid: {info}})
                 if isinstance(clientes, dict):
                     for pid, info in clientes.items():
-                        # Obtém o Zen da conta
                         resultado_zen = {}
                         if hasattr(monitor, "obter_zen_conta"):
                             resultado_zen = monitor.obter_zen_conta(pid)
                         
-                        # CORRECAO DO NOME: Se o name vier vazio, usa o PID ou titulo da janela como fallback
-                        nome_char = info.get("name") or info.get("titulo") or f"Conta-{pid}"
+                        # Tenta pegar o nome via WinAPI se o monitor não trouxe
+                        titulo_janela = info.get("name") or info.get("titulo") or obter_titulo_janela_por_pid(int(pid))
+                        nome_limpo = limpar_nome_personagem(titulo_janela, pid)
                         
                         clientes_payload.append({
-                            "pid": pid,
-                            "name": str(nome_char),
+                            "pid": int(pid),
+                            "name": str(nome_limpo),
                             "resolucao": info.get("resolucao", "N/A"),
                             "zen": resultado_zen.get("zen", 0),
                             "status": resultado_zen.get("status", "OK")
@@ -65,11 +98,6 @@ def iniciar_agente():
 
             elif hasattr(monitor, "coletar_contas"):
                 clientes_payload = monitor.coletar_contas()
-
-            # Garante que se o nome vier igual ao PID ou vazio, ajustamos para ficar limpo no painel
-            for c in clientes_payload:
-                if not c.get("name") or c.get("name") == str(c.get("pid")):
-                    c["name"] = f"Char-PID {c.get('pid')}"
 
             payload = {
                 "machine_id": MACHINE_ID,
