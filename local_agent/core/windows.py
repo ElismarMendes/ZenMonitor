@@ -74,17 +74,21 @@ def capturar_tela_janela_fundo(hwnd, rel_box):
         pass
     finally:
         if saveBitMap:
-            try: win32gui.DeleteObject(saveBitMap.GetHandle())
-            except Exception: pass
-        if saveDC: saveDC.DeleteDC()
-        if mfcDC: mfcDC.DeleteDC()
-        if hwndDC: win32gui.ReleaseDC(hwnd, hwndDC)
+            try:
+                win32gui.DeleteObject(saveBitMap.GetHandle())
+            except Exception:
+                pass
+        if saveDC:
+            saveDC.DeleteDC()
+        if mfcDC:
+            mfcDC.DeleteDC()
+        if hwndDC:
+            win32gui.ReleaseDC(hwnd, hwndDC)
 
     return None
 
 def extrair_nome_inteligente(titulo: str, pid: int) -> str:
-    # 1. Busca direta tanto em Portugues (Nome:) quanto em Ingles (Name:)
-     padroes_extras = [
+    padroes_extras = [
         r"N[ao]me\s*[:=-]\s*([^\s\|\-\]\)]+)",
         r"Char(?:acter)?\s*[:=-]\s*([^\s\|\-\]\)]+)",
         r"\[\s*([A-Za-z0-9_\-]+)\s*\]"
@@ -94,7 +98,6 @@ def extrair_nome_inteligente(titulo: str, pid: int) -> str:
         if m2 and m2.group(1).lower() not in ("theclassic", "mainmu", "mu"):
             return m2.group(1).strip()
 
-    # 2. Fallback para o PADRAO_TITULO do config.py caso exista
     if PADRAO_TITULO:
         m = PADRAO_TITULO.search(titulo)
         if m:
