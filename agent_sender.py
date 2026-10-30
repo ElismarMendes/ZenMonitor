@@ -1,15 +1,43 @@
+import os
+import sys
+import subprocess
 import time
 import socket
-import sys
-import os
-import requests
-import pytesseract
+import ctypes
+
+# 1. AUTO-CORRECAO DE AMBIENTE (.venv) E DEPENDENCIAS
+PASTA_PROJETO = os.path.dirname(os.path.abspath(__file__))
+PYTHON_VENV = os.path.join(PASTA_PROJETO, ".venv", "Scripts", "python.exe")
+
+# Se a .venv existe mas o script foi aberto pelo Python global do Windows, relanca dentro da .venv!
+if os.path.exists(PYTHON_VENV) and os.path.normcase(sys.executable) != os.path.normcase(PYTHON_VENV):
+    print("[AUTO-FIX] Alternando automaticamente para o Python da .venv...")
+    sys.exit(subprocess.call([PYTHON_VENV] + sys.argv))
+
+# Se faltar 'requests' ou 'pytesseract', instala automaticamente no Python atual
+try:
+    import requests
+    import pytesseract
+except ImportError:
+    print("[AUTO-FIX] Instalando dependencias ausentes (requests, pytesseract, opencv, pywin32)...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", os.path.join(PASTA_PROJETO, "requirements.txt")])
+    import requests
+    import pytesseract
+
+# 2. Ativa DPI real do Windows para nao deslocar recortes de OCR
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 tesseract_path = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 if os.path.exists(tesseract_path):
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "local_agent"))
+sys.path.insert(0, os.path.join(PASTA_PROJETO, "local_agent"))
 
 from services.monitor_service import MonitorService
 from core.calibrator import garantir_calibragem_inicial, calibrar_interativo
@@ -20,7 +48,6 @@ INTERVALO_SEGUNDOS = 5
 
 
 def iniciar_agente():
-    # Se o usuario chamou "python agent_sender.py --calibrar", abre direto o calibrador
     if "--calibrar" in sys.argv:
         calibrar_interativo()
         return
@@ -28,15 +55,14 @@ def iniciar_agente():
     monitor = MonitorService()
     print("==================================================")
     print(f" Agente Iniciado na Maquina: {MACHINE_ID}")
+    print(f" Python em uso: {sys.executable}")
     print(f" Destino VPS: {VPS_URL}")
     print("==================================================")
 
-    # Verifica automaticamente na primeira execucao se o PC ja tem calibragem para a resolucao do jogo
     garantir_calibragem_inicial()
 
     while True:
         try:
-            # Caso o jogo tenha sido aberto DEPOIS do agente iniciar e ainda nao tenha calibragem
             garantir_calibragem_inicial()
 
             clientes = monitor.listar_contas_ativas()
