@@ -1,10 +1,10 @@
 import os
 import sys
+import time
 import json
 import cv2
 import ctypes
 
-# Desativa distorcao de escala (125% / 150%) do Windows para cortar o pixel exato
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -21,6 +21,12 @@ if PASTA_AGENT not in sys.path:
 
 from core.windows import obter_clientes_mainmu, capturar_tela_janela_fundo, obter_geometria_cliente
 from core.ocr import ler_texto_imagem, preprocessar_para_ocr
+
+try:
+    import win32gui
+    import win32con
+except ImportError:
+    win32gui = None
 
 CAMINHO_CONFIG_OCR = os.path.join(PASTA_RAIZ, "ocr_config.json")
 
@@ -47,6 +53,22 @@ def obter_box_para_resolucao(resolucao: str):
     if "rel_box" in cfg and isinstance(cfg["rel_box"], list) and len(cfg["rel_box"]) == 4:
         return tuple(cfg["rel_box"])
     return None
+
+
+def focar_janela_jogo(hwnd):
+    """Traz a janela do MU para a frente do CMD antes de capturar no calibrador (Essencial para VMware)"""
+    if not win32gui:
+        return
+    try:
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        # Simula tecla ALT para o Windows permitir SetForegroundWindow sem bloqueio
+        ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
+        ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.5)  # Aguarda meio segundo para a placa de video da VMware desenhar o jogo na frente
+    except Exception:
+        pass
 
 
 def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> tuple:
@@ -88,11 +110,14 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
     print("\n========================================================")
     print(f" CALIBRADOR DE ZEN - Janela Base: {nome_char} (PID: {escolhido_pid})")
     print(f" Resolucao Detectada: {resolucao}")
-    print(" -> DICA: Selecione APENAS os numeros do Zen (sem a palavra 'Zen')")
+    print(" -> Trazendo a janela do MU para a frente para capturar sem o CMD...")
     print("========================================================")
 
     while True:
-        img_janela = capturar_tela_janela_fundo(hwnd, (0, 0, largura, altura))
+        # Coloca a janela do MU na frente do terminal CMD antes de tirar a foto!
+        focar_janela_jogo(hwnd)
+
+        img_janela = capturar_tela_janela_fundo(hwnd, (0, 0, largura, altura), forcar_tela_direta=True)
         if img_janela is None:
             print("[ERRO] Falha ao capturar imagem da janela do jogo.")
             return None
@@ -112,8 +137,8 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
 
         rel_box = (x, y, x + w, y + h)
 
-        # Recorta a amostra e aplica o novo filtro de letra preta em fundo branco
-        recorte_amostra = capturar_tela_janela_fundo(hwnd, rel_box)
+        # Recorta direto da imagem limpa que acabamos de capturar
+        recorte_amostra = img_janela[y:y+h, x:x+w]
         valor_lido = ler_texto_imagem(recorte_amostra)
 
         img_ocr_pb = preprocessar_para_ocr(recorte_amostra)
@@ -135,7 +160,6 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
             f"Resolução: {resolucao}\n"
             f"Coordenada Relativa: {rel_box}\n\n"
             f"Valor de Zen lido pelo OCR:\n>>> {txt_zen} <<<\n\n"
-            f"DICA: Na janela de amostra ao fundo, os números devem aparecer PRETOS em fundo BRANCO bem nítidos, sem bordas da caixa.\n\n"
             f"A leitura está correta?\n"
             f"• SIM = Salvar para todas as contas {resolucao}\n"
             f"• NÃO = Selecionar novamente"
