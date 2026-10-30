@@ -13,7 +13,6 @@ from core.calibrator import obter_box_para_resolucao, carregar_config_ocr
 
 class MonitorService:
     def __init__(self):
-        # Removemos o cache estatico para evitar valores presos incorretos
         pass
 
     def listar_contas_ativas(self) -> dict:
@@ -39,8 +38,8 @@ class MonitorService:
         if not rel_box:
             return {"zen": 0, "status": "Falta Calibrar"}
 
-        # Captura a area exata calibrada
-        img = capturar_tela_janela_fundo(hwnd, rel_box)
+        # Forca a captura direta exata (igual ao calibrador) para evitar buffer congelado do VMware
+        img = capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=True)
         if img is None or img.size == 0:
             return {"zen": 0, "status": "Minimizado"}
 
@@ -50,5 +49,4 @@ class MonitorService:
         if valor is not None:
             return {"zen": valor, "status": "Lido com sucesso"}
         
-        # Se falhou a leitura neste ciclo especifico, retorna 0 em vez de segurar um cache errado
         return {"zen": 0, "status": "Erro OCR / Inventario Fechado"}
