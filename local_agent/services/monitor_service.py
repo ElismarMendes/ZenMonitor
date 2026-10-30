@@ -13,7 +13,8 @@ from core.calibrator import obter_box_para_resolucao, carregar_config_ocr
 
 class MonitorService:
     def __init__(self):
-        self.ultimo_zen_valido = {}
+        # Removemos o cache estatico para evitar valores presos incorretos
+        pass
 
     def listar_contas_ativas(self) -> dict:
         return obter_clientes_mainmu()
@@ -31,7 +32,6 @@ class MonitorService:
 
         rel_box = obter_box_para_resolucao(resolucao)
         if not rel_box:
-            # Tenta pegar qualquer calibragem existente no arquivo
             cfg = carregar_config_ocr()
             if "rel_box" in cfg:
                 rel_box = tuple(cfg["rel_box"])
@@ -39,16 +39,16 @@ class MonitorService:
         if not rel_box:
             return {"zen": 0, "status": "Falta Calibrar"}
 
+        # Captura a area exata calibrada
         img = capturar_tela_janela_fundo(hwnd, rel_box)
-        if img is None:
-            zen_anterior = self.ultimo_zen_valido.get(int(pid), 0)
-            return {"zen": zen_anterior, "status": "Minimizado/Cache"}
+        if img is None or img.size == 0:
+            return {"zen": 0, "status": "Minimizado"}
 
+        # Realiza a leitura limpa via OCR em tempo real
         valor = ler_texto_imagem(img)
+        
         if valor is not None:
-            self.ultimo_zen_valido[int(pid)] = valor
             return {"zen": valor, "status": "Lido com sucesso"}
-
-        zen_anterior = self.ultimo_zen_valido.get(int(pid), 0)
-        status_msg = "Inventario fechado (Cache)" if zen_anterior > 0 else "Aguardando leitura"
-        return {"zen": zen_anterior, "status": status_msg}
+        
+        # Se falhou a leitura neste ciclo especifico, retorna 0 em vez de segurar um cache errado
+        return {"zen": 0, "status": "Erro OCR / Inventario Fechado"}
