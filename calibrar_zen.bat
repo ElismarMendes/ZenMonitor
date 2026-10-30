@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title Calibrador de Zen - OCR
-cd /d "%~dp0"
-if exist ".venv\Scripts\activate.bat" call .venv\Scripts\activate.bat
-python calibrar_ocr.py
+title Calibrador Visual de Zen - ZenMonitor
+cd /d "C:\Mu\ZenCloud"
+.venv\Scripts\python.exe agent_sender.py --calibrar
+pause

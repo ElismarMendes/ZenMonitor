@@ -1,64 +1,54 @@
 import os
-import json
-from config import CONFIG_FILE
-from core.windows import obter_clientes_mainmu, obter_geometria_cliente, capturar_tela_janela_fundo
+import sys
+
+PASTA_SERVICES = os.path.dirname(os.path.abspath(__file__))
+PASTA_AGENT = os.path.dirname(PASTA_SERVICES)
+if PASTA_AGENT not in sys.path:
+    sys.path.insert(0, PASTA_AGENT)
+
+from core.windows import obter_clientes_mainmu, capturar_tela_janela_fundo
 from core.ocr import ler_texto_imagem
-from core.memory import ler_multiplos_enderecos
+from core.calibrator import obter_box_para_resolucao, carregar_config_ocr
+
 
 class MonitorService:
     def __init__(self):
-        self.calibracoes = self.carregar_configuracoes()
-        self.estado_memoria = {}
+        self.ultimo_zen_valido = {}
 
-    def carregar_configuracoes(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {}
-
-    def listar_contas_ativas(self):
+    def listar_contas_ativas(self) -> dict:
         return obter_clientes_mainmu()
 
-    def obter_zen_conta(self, pid: int):
-        clientes = self.listar_contas_ativas()
-        if pid not in clientes:
-            return {"error": "Cliente não encontrado ou fechado."}
+    def obter_zen_conta(self, pid: int, info_janela: dict = None) -> dict:
+        if not info_janela:
+            clientes = self.listar_contas_ativas()
+            info_janela = clientes.get(int(pid))
 
-        cli = clientes[pid]
-        nome = cli["name"]
-        hwnd = cli["hwnd"]
-        res = cli["resolucao"]
+        if not info_janela:
+            return {"zen": 0, "status": "Janela fechada"}
 
-        dados_conta = self.calibracoes.get(nome, {})
-        pct_box = dados_conta.get("pct_box") or self.calibracoes.get("_universal_pct_box")
+        hwnd = info_janela.get("hwnd")
+        resolucao = info_janela.get("resolucao", "Minimizado")
 
-        if not pct_box:
-            return {"name": nome, "zen": None, "status": "Não calibrado."}
+        rel_box = obter_box_para_resolucao(resolucao)
+        if not rel_box:
+            # Tenta pegar qualquer calibragem existente no arquivo
+            cfg = carregar_config_ocr()
+            if "rel_box" in cfg:
+                rel_box = tuple(cfg["rel_box"])
 
-        geom = obter_geometria_cliente(hwnd)
-        if not geom:
-            return {"name": nome, "zen": None, "status": "Janela minimizada."}
+        if not rel_box:
+            return {"zen": 0, "status": "Falta Calibrar"}
 
-        client_x, client_y, larg, alt = geom
-        px1, py1, px2, py2 = pct_box
-        rel_box = [int(px1 * larg), int(py1 * alt), int(px2 * larg), int(py2 * alt)]
+        img = capturar_tela_janela_fundo(hwnd, rel_box)
+        if img is None:
+            zen_anterior = self.ultimo_zen_valido.get(int(pid), 0)
+            return {"zen": zen_anterior, "status": "Minimizado/Cache"}
 
-        # Tenta BitBlt
-        img_np = capturar_tela_janela_fundo(hwnd, rel_box)
-        # Fallback ImageGrab
-        if img_np is None or img_np.size == 0:
-            rx1, ry1, rx2, ry2 = rel_box
-            screenshot = ImageGrab.grab(bbox=(client_x + rx1, client_y + ry1, client_x + rx2, client_y + ry2))
-            img_np = np.array(screenshot)
+        valor = ler_texto_imagem(img)
+        if valor is not None:
+            self.ultimo_zen_valido[int(pid)] = valor
+            return {"zen": valor, "status": "Lido com sucesso"}
 
-        zen_val = ler_texto_imagem(img_np)
-        return {
-            "name": nome,
-            "pid": pid,
-            "zen": zen_val,
-            "resolucao": res,
-            "status": "Lido com sucesso" if zen_val is not None else "Aguardando leitura"
-        }
+        zen_anterior = self.ultimo_zen_valido.get(int(pid), 0)
+        status_msg = "Inventario fechado (Cache)" if zen_anterior > 0 else "Aguardando leitura"
+        return {"zen": zen_anterior, "status": status_msg}
