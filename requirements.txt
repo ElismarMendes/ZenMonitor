@@ -1,4 +1,19 @@
+# ==========================================
+# DEPENDÊNCIAS DO SERVIDOR CENTRAL (VPS/COOLIFY)
+# ==========================================
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 requests==2.32.3
+
+# ==========================================
+# DEPENDÊNCIAS DO AGENTE LOCAL (WINDOWS)
+# O marcador sys_platform impede que a VPS Linux tente instalar pacotes exclusivos do Windows
+# Note: Operando atualmente apenas via OCR (leitura de memória RAM desativada/pendente)
+# ==========================================
+opencv-python>=4.8.0 ; sys_platform == 'win32'
+pytesseract>=0.3.10 ; sys_platform == 'win32'
+Pillow>=10.0.0 ; sys_platform == 'win32'
+numpy>=1.26.0 ; sys_platform == 'win32'
+pywin32>=306 ; sys_platform == 'win32'
+psutil>=5.9.0 ; sys_platform == 'win32'
