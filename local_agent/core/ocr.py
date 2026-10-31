@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import cv2
 import numpy as np
@@ -44,7 +45,8 @@ def ler_texto_imagem(img_np):
 
             if texto_limpo:
                 val = int(texto_limpo)
-                if 0 < val <= 2000000000:
+                # Filtro de seguranca: Zen valido no jogo deve ser maior que 1000 e menor que 2 Bilhoes
+                if 1000 <= val <= 2000000000:
                     return val
         except Exception:
             continue

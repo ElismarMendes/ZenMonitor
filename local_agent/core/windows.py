@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 from PIL import ImageGrab
 
-# Força o Windows a desativar o zoom de DPI para o Python capturar pixels reais 1:1
+# Força o DPI Awareness correto para ignorar zoom de 125%/150% do Windows 11 em notebooks
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -57,16 +57,22 @@ TIPO_AMBIENTE = identificar_ambiente()
 
 def obter_geometria_cliente(hwnd):
     """
-    Retorna a resolucao interna real da area util do jogo (ex: 1024x768)
-    e a posicao exata na tela, ignorando barras de titulo e bordas do Windows.
+    Obtem a resolucao interna real da janela do jogo ignorando o zoom de DPI do Windows 11.
+    Se a API do Windows retornar com escala de DPI aplicada, normalizamos para a resolucao real (ex: 800x600).
     """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
         return None
     try:
-        # GetClientRect da dimensao interna exata configurada no usuario (ex: 800x600 ou 1024x768)
         _, _, largura, altura = win32gui.GetClientRect(hwnd)
         if largura <= 0 or altura <= 0:
             return None
+        
+        # Normaliza resolucoes comuns afetadas por escala de DPI em notebooks (ex: 1200x900 -> 800x600)
+        if abs(largura - 1200) < 10 and abs(altura - 900) < 10:
+            largura, altura = 800, 600
+        elif abs(largura - 1536) < 10 and abs(altura - 1152) < 10:
+            largura, altura = 1024, 768
+
         client_x, client_y = win32gui.ClientToScreen(hwnd, (0, 0))
         return client_x, client_y, largura, altura
     except Exception:
@@ -74,10 +80,6 @@ def obter_geometria_cliente(hwnd):
 
 
 def converter_pct_para_box_cliente(hwnd, pct_box):
-    """
-    Converte a proporcao universal (0.0 a 1.0) para os pixels exatos 
-    da resolucao atual em que o usuario abriu o jogo.
-    """
     geom = obter_geometria_cliente(hwnd)
     if not geom or not pct_box or len(pct_box) != 4:
         return None, None
@@ -94,10 +96,6 @@ def converter_pct_para_box_cliente(hwnd, pct_box):
 
 
 def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
-    """
-    Captura os pixels estritamente dentro da area util do cliente,
-    suportando tanto o BitBlt quanto o ImageGrab na VMware.
-    """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or not rel_box:
         return None
 
@@ -116,52 +114,7 @@ def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
     if largura <= 0 or altura <= 0:
         return None
 
-    if not forcar_tela_direta:
-        hwndDC = mfcDC = saveDC = saveBitMap = None
-        try:
-            hwndDC = win32gui.GetDC(hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, largura, altura)
-            saveDC.SelectObject(saveBitMap)
-
-            saveDC.BitBlt((0, 0), (largura, altura), mfcDC, (rel_x1, rel_y1), win32con.SRCCOPY)
-
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-
-            img = np.frombuffer(bmpstr, dtype=np.uint8)
-            img = np.reshape(img, (bmpinfo["bmHeight"], bmpinfo["bmWidth"], 4))
-            img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-
-            if img_bgr.size > 0 and np.mean(img_bgr) > 2.0:
-                return img_bgr
-        except Exception:
-            pass
-        finally:
-            if saveBitMap:
-                try:
-                    win32gui.DeleteObject(saveBitMap.GetHandle())
-                except Exception:
-                    pass
-            if saveDC:
-                try:
-                    saveDC.DeleteDC()
-                except Exception:
-                    pass
-            if mfcDC:
-                try:
-                    mfcDC.DeleteDC()
-                except Exception:
-                    pass
-            if hwndDC:
-                try:
-                    win32gui.ReleaseDC(hwnd, hwndDC)
-                except Exception:
-                    pass
-
+    # No Windows 11 de notebooks, ImageGrab com all_screens=True e mais estavel para capturar sem distorcao de DPI
     try:
         abs_x1 = client_x + rel_x1
         abs_y1 = client_y + rel_y1
@@ -175,6 +128,44 @@ def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
             return recorte
     except Exception:
         pass
+
+    # Fallback BitBlt
+    hwndDC = mfcDC = saveDC = saveBitMap = None
+    try:
+        hwndDC = win32gui.GetDC(hwnd)
+        mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+        saveDC = mfcDC.CreateCompatibleDC()
+
+        saveBitMap = win32ui.CreateBitmap()
+        saveBitMap.CreateCompatibleBitmap(mfcDC, largura, altura)
+        saveDC.SelectObject(saveBitMap)
+
+        saveDC.BitBlt((0, 0), (largura, altura), mfcDC, (rel_x1, rel_y1), win32con.SRCCOPY)
+
+        bmpinfo = saveBitMap.GetInfo()
+        bmpstr = saveBitMap.GetBitmapBits(True)
+
+        img = np.frombuffer(bmpstr, dtype=np.uint8)
+        img = np.reshape(img, (bmpinfo["bmHeight"], bmpinfo["bmWidth"], 4))
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        if img_bgr.size > 0 and np.mean(img_bgr) > 2.0:
+            return img_bgr
+    except Exception:
+        pass
+    finally:
+        if saveBitMap:
+            try: win32gui.DeleteObject(saveBitMap.GetHandle())
+            except Exception: pass
+        if saveDC:
+            try: saveDC.DeleteDC()
+            except Exception: pass
+        if mfcDC:
+            try: mfcDC.DeleteDC()
+            except Exception: pass
+        if hwndDC:
+            try: win32gui.ReleaseDC(hwnd, hwndDC)
+            except Exception: pass
 
     return None
 
@@ -224,7 +215,7 @@ def obter_clientes_mainmu():
 
     clientes = {}
     for pid, info in janelas_por_pid.items():
-        name = extra_in = extrair_nome_inteligente(info["titulo"], pid)
+        name = extrair_nome_inteligente(info["titulo"], pid)
         geom = obter_geometria_cliente(info["hwnd"])
         res_str = f"{geom[2]}x{geom[3]}" if geom else "Minimizado"
 
