@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 from PIL import ImageGrab
 
-# Força o DPI Awareness real para ignorar o zoom do Windows em notebooks
+# Configura o DPI awareness para evitar distorções de escala do Windows
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -36,7 +36,6 @@ except ImportError:
     win32gui = None
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
-shcore = ctypes.WinDLL("shcore", use_last_error=True)
 
 
 def identificar_ambiente():
@@ -56,53 +55,31 @@ def identificar_ambiente():
 TIPO_AMBIENTE = identificar_ambiente()
 
 
-def diagnosticar_dpi_e_resolucao(hwnd):
-    """
-    Inspeciona o fator de escala de DPI do monitor e as dimensoes reais da janela do jogo.
-    """
-    fator_escala = 1.0
-    try:
-        hmonitor = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
-        dpi_x = ctypes.c_uint()
-        dpi_y = ctypes.c_uint()
-        shcore.GetDpiForMonitor(hmonitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))  # MDT_EFFECTIVE_DPI
-        fator_escala = dpi_x.value / 96.0
-    except Exception:
-        pass
-
-    rect = wintypes.RECT()
-    user32.GetClientRect(hwnd, ctypes.byref(rect))
-    largura_cliente = rect.right - rect.left
-    altura_cliente = rect.bottom - rect.top
-
-    return fator_escala, largura_cliente, altura_cliente
-
-
 def obter_geometria_cliente(hwnd):
     """
-    Obtém a resolução interna real da janela do jogo aplicando o diagnóstico de DPI.
-    Normaliza automaticamente resoluções esticadas por escala (ex: 1200x900 para 800x600).
+    Obtém exatamente o tamanho real em pixels da área interna (Client Area) 
+    e a posição no monitor, seja o jogo em 800x600, 1024x768 ou qualquer outra resolução.
     """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
         return None
     try:
-        _, largura_cliente, altura_cliente = diagnosticar_dpi_e_resolucao(hwnd)
-        if largura_cliente <= 0 or altura_cliente <= 0:
+        # Pega as dimensões reais da área interna do jogo reportadas pelo Windows
+        _, _, largura, altura = win32gui.GetClientRect(hwnd)
+        if largura <= 0 or altura <= 0:
             return None
 
-        # Normalização inteligente para resoluções comuns afetadas por escala de DPI em notebooks
-        if abs(largura_cliente - 1200) < 15 and abs(altura_cliente - 900) < 15:
-            largura_cliente, altura_cliente = 800, 600
-        elif abs(largura_cliente - 1536) < 15 and abs(altura_cliente - 1152) < 15:
-            largura_cliente, altura_cliente = 1024, 768
-
+        # Coordenada absoluta onde a área interna do jogo começa na tela
         client_x, client_y = win32gui.ClientToScreen(hwnd, (0, 0))
-        return client_x, client_y, largura_cliente, altura_cliente
+        return client_x, client_y, largura, altura
     except Exception:
         return None
 
 
 def converter_pct_para_box_cliente(hwnd, pct_box):
+    """
+    Converte a proporção percentual salva para os pixels exatos da resolução 
+    atual em que a janela do jogo está rodando neste computador.
+    """
     geom = obter_geometria_cliente(hwnd)
     if not geom or not pct_box or len(pct_box) != 4:
         return None, None
@@ -119,6 +96,9 @@ def converter_pct_para_box_cliente(hwnd, pct_box):
 
 
 def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
+    """
+    Captura os pixels estritamente dentro da proporção real da janela ativa.
+    """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or not rel_box:
         return None
 
@@ -137,6 +117,7 @@ def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
     if largura <= 0 or altura <= 0:
         return None
 
+    # Tenta via ImageGrab nas coordenadas absolutas reais da tela
     try:
         abs_x1 = client_x + rel_x1
         abs_y1 = client_y + rel_y1
@@ -150,6 +131,44 @@ def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
             return recorte
     except Exception:
         pass
+
+    # Fallback BitBlt
+    hwndDC = mfcDC = saveDC = saveBitMap = None
+    try:
+        hwndDC = win32gui.GetDC(hwnd)
+        mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+        saveDC = mfcDC.CreateCompatibleDC()
+
+        saveBitMap = win32ui.CreateBitmap()
+        saveBitMap.CreateCompatibleBitmap(mfcDC, largura, altura)
+        saveDC.SelectObject(saveBitMap)
+
+        saveDC.BitBlt((0, 0), (largura, altura), mfcDC, (rel_x1, rel_y1), win32con.SRCCOPY)
+
+        bmpinfo = saveBitMap.GetInfo()
+        bmpstr = saveBitMap.GetBitmapBits(True)
+
+        img = np.frombuffer(bmpstr, dtype=np.uint8)
+        img = np.reshape(img, (bmpinfo["bmHeight"], bmpinfo["bmWidth"], 4))
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+
+        if img_bgr.size > 0 and np.any(img_bgr):
+            return img_bgr
+    except Exception:
+        pass
+    finally:
+        if saveBitMap:
+            try: win32gui.DeleteObject(saveBitMap.GetHandle())
+            except Exception: pass
+        if saveDC:
+            try: saveDC.DeleteDC()
+            except Exception: pass
+        if mfcDC:
+            try: mfcDC.DeleteDC()
+            except Exception: pass
+        if hwndDC:
+            try: win32gui.ReleaseDC(hwnd, hwndDC)
+            except Exception: pass
 
     return None
 
