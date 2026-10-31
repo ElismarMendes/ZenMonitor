@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 from PIL import ImageGrab
 
-# Força o DPI Awareness correto para ignorar zoom de 125%/150% do Windows 11 em notebooks
+# Força o DPI Awareness real para ignorar o zoom do Windows em notebooks
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -36,6 +36,7 @@ except ImportError:
     win32gui = None
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+shcore = ctypes.WinDLL("shcore", use_last_error=True)
 
 
 def identificar_ambiente():
@@ -55,26 +56,48 @@ def identificar_ambiente():
 TIPO_AMBIENTE = identificar_ambiente()
 
 
+def diagnosticar_dpi_e_resolucao(hwnd):
+    """
+    Inspeciona o fator de escala de DPI do monitor e as dimensoes reais da janela do jogo.
+    """
+    fator_escala = 1.0
+    try:
+        hmonitor = user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+        dpi_x = ctypes.c_uint()
+        dpi_y = ctypes.c_uint()
+        shcore.GetDpiForMonitor(hmonitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))  # MDT_EFFECTIVE_DPI
+        fator_escala = dpi_x.value / 96.0
+    except Exception:
+        pass
+
+    rect = wintypes.RECT()
+    user32.GetClientRect(hwnd, ctypes.byref(rect))
+    largura_cliente = rect.right - rect.left
+    altura_cliente = rect.bottom - rect.top
+
+    return fator_escala, largura_cliente, altura_cliente
+
+
 def obter_geometria_cliente(hwnd):
     """
-    Obtem a resolucao interna real da janela do jogo ignorando o zoom de DPI do Windows 11.
-    Se a API do Windows retornar com escala de DPI aplicada, normalizamos para a resolucao real (ex: 800x600).
+    Obtém a resolução interna real da janela do jogo aplicando o diagnóstico de DPI.
+    Normaliza automaticamente resoluções esticadas por escala (ex: 1200x900 para 800x600).
     """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
         return None
     try:
-        _, _, largura, altura = win32gui.GetClientRect(hwnd)
-        if largura <= 0 or altura <= 0:
+        _, largura_cliente, altura_cliente = diagnosticar_dpi_e_resolucao(hwnd)
+        if largura_cliente <= 0 or altura_cliente <= 0:
             return None
-        
-        # Normaliza resolucoes comuns afetadas por escala de DPI em notebooks (ex: 1200x900 -> 800x600)
-        if abs(largura - 1200) < 10 and abs(altura - 900) < 10:
-            largura, altura = 800, 600
-        elif abs(largura - 1536) < 10 and abs(altura - 1152) < 10:
-            largura, altura = 1024, 768
+
+        # Normalização inteligente para resoluções comuns afetadas por escala de DPI em notebooks
+        if abs(largura_cliente - 1200) < 15 and abs(altura_cliente - 900) < 15:
+            largura_cliente, altura_cliente = 800, 600
+        elif abs(largura_cliente - 1536) < 15 and abs(altura_cliente - 1152) < 15:
+            largura_cliente, altura_cliente = 1024, 768
 
         client_x, client_y = win32gui.ClientToScreen(hwnd, (0, 0))
-        return client_x, client_y, largura, altura
+        return client_x, client_y, largura_cliente, altura_cliente
     except Exception:
         return None
 
@@ -114,7 +137,6 @@ def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
     if largura <= 0 or altura <= 0:
         return None
 
-    # No Windows 11 de notebooks, ImageGrab com all_screens=True e mais estavel para capturar sem distorcao de DPI
     try:
         abs_x1 = client_x + rel_x1
         abs_y1 = client_y + rel_y1
@@ -128,44 +150,6 @@ def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
             return recorte
     except Exception:
         pass
-
-    # Fallback BitBlt
-    hwndDC = mfcDC = saveDC = saveBitMap = None
-    try:
-        hwndDC = win32gui.GetDC(hwnd)
-        mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-        saveDC = mfcDC.CreateCompatibleDC()
-
-        saveBitMap = win32ui.CreateBitmap()
-        saveBitMap.CreateCompatibleBitmap(mfcDC, largura, altura)
-        saveDC.SelectObject(saveBitMap)
-
-        saveDC.BitBlt((0, 0), (largura, altura), mfcDC, (rel_x1, rel_y1), win32con.SRCCOPY)
-
-        bmpinfo = saveBitMap.GetInfo()
-        bmpstr = saveBitMap.GetBitmapBits(True)
-
-        img = np.frombuffer(bmpstr, dtype=np.uint8)
-        img = np.reshape(img, (bmpinfo["bmHeight"], bmpinfo["bmWidth"], 4))
-        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-
-        if img_bgr.size > 0 and np.mean(img_bgr) > 2.0:
-            return img_bgr
-    except Exception:
-        pass
-    finally:
-        if saveBitMap:
-            try: win32gui.DeleteObject(saveBitMap.GetHandle())
-            except Exception: pass
-        if saveDC:
-            try: saveDC.DeleteDC()
-            except Exception: pass
-        if mfcDC:
-            try: mfcDC.DeleteDC()
-            except Exception: pass
-        if hwndDC:
-            try: win32gui.ReleaseDC(hwnd, hwndDC)
-            except Exception: pass
 
     return None
 
