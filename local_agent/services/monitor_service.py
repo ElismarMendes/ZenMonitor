@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+import cv2
 
 PASTA_SERVICES = os.path.dirname(os.path.abspath(__file__))
 PASTA_AGENT = os.path.dirname(PASTA_SERVICES)
@@ -35,15 +37,25 @@ class MonitorService:
         if not rel_box:
             return None
 
+        # Tenta a captura de fundo padrao. Se falhar em segundo plano, tenta forcar captura direta
         img = capturar_tela_janela_fundo(hwnd, rel_box)
+        if img is None or img.size == 0 or cv2.mean(img)[0] < 2.0:
+            img = capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=True)
+
         if img is None or img.size == 0:
-            log_capture(pid, char_name, "BitBlt/ImageGrab", "Vazio/Minimizado")
+            log_capture(pid, char_name, "BitBlt/ImageGrab", "Vazio ou Inacessivel em segundo plano")
             return None
 
         valor = ler_texto_imagem(img)
-        if valor is not None and 0 < valor <= 2000000000:
+        if valor is not None and 1000 <= valor <= 2000000000:
             log_ocr(pid, char_name, "OK", valor)
             return valor
+
+        # Salva imagem de diagnostico se falhar para inspecionar o motivo do OCR
+        try:
+            cv2.imwrite(f"falha_ocr_{char_name}.png", img)
+        except Exception:
+            pass
 
         log_ocr(pid, char_name, "FALHA OCR", None)
         return None
@@ -59,7 +71,7 @@ class MonitorService:
 
         hwnd = info_janela.get("hwnd")
         char_name = info_janela.get("name", f"PID:{pid}")
-        resolucao = info_janela.get("resolucao", "1024x768")
+        resolucao = info_janela.get("resolucao", "1200x900")
         zen_cache = self.ultimo_zen_valido.get(pid, 0)
 
         estado = self.estado_memoria.get(char_name)
@@ -75,10 +87,10 @@ class MonitorService:
             }
             self.estado_memoria[char_name] = estado
 
-        # PASSO 4: LEITURA DIRETA DA MEMORIA RAM (Funciona Minimizado / 'V' fechado)
+        # LEITURA DIRETA DA MEMORIA RAM (Caso ja tenha travado o endereco)
         if estado["enderecos_travados"]:
             leituras = ler_multiplos_enderecos(pid, estado["enderecos_travados"])
-            valores_validos = [v for v in leituras.values() if 0 <= v <= 2000000000]
+            valores_validos = [v for v in leituras.values() if 1000 <= v <= 2000000000]
             if valores_validos:
                 zen_ram = max(valores_validos)
                 self.ultimo_zen_valido[pid] = zen_ram
@@ -92,10 +104,9 @@ class MonitorService:
                 log_memory(pid, char_name, "RESET", "Enderecos antigos invalidados. Reiniciando scan...")
                 estado["enderecos_travados"] = []
 
-        # PASSOS 1 A 3: OCR + VARREDURA E FILTRAGEM NA RAM
+        # OCR + VARREDURA NA RAM
         zen_ocr = self._ler_ocr_janela(pid, char_name, hwnd, resolucao)
 
-        # PASSO 1: Primeiro Scan Completo na Memoria (com confirmacao anti-ruido)
         if not estado["candidatos"]:
             if zen_ocr is not None:
                 semente = estado.get("leitura_semente")
@@ -121,12 +132,10 @@ class MonitorService:
                     return {"zen": zen_ocr, "status": f"1o Scan ({len(cands)} cand.) - Cate Zen!"}
                 else:
                     self.ultimo_zen_valido[pid] = zen_ocr
-                    log_memory(pid, char_name, "AVISO", "Scan retornou 0 enderecos (Execute como Admin)", zen_ocr)
                     return {"zen": zen_ocr, "status": "OCR OK (Sem acesso RAM)"}
 
             return {"zen": zen_cache, "status": "Abra o 'V' para 1o Scan"}
 
-        # PASSO 2 e 3: Filtragem quando o Zen muda no OCR
         if zen_ocr is not None and zen_ocr != estado["ultimo_zen"]:
             if abs(zen_ocr - estado["ultimo_zen"]) <= 50000000:
                 novos_cands = buscar_valor_4bytes(pid, zen_ocr, estado["candidatos"])
@@ -135,23 +144,21 @@ class MonitorService:
                     estado["ultimo_zen"] = zen_ocr
                     estado["falhas_filtro"] = 0
                     self.ultimo_zen_valido[pid] = zen_ocr
-                    log_memory(pid, char_name, "FILTRAGEM", f"Refinado para {len(novos_cands)} endereco(s)!", zen_ocr)
 
                     if len(novos_cands) <= 10:
                         estado["enderecos_travados"] = sorted(novos_cands)
                         salvar_enderecos_ram_conta(char_name, pid, estado["enderecos_travados"])
                         end_hex = hex(estado["enderecos_travados"][0])
-                        log_memory(pid, char_name, "TRAVADO!", f"Endereco {end_hex} salvo! Pode fechar 'V'!", zen_ocr)
+                        log_memory(pid, char_name, "TRAVADO!", f"Endereco {end_hex} salvo!", zen_ocr)
                         return {"zen": zen_ocr, "status": f"RAM [{end_hex}] (Pode fechar V)"}
                 else:
                     estado["falhas_filtro"] += 1
                     if estado["falhas_filtro"] >= 4:
-                        log_memory(pid, char_name, "RE-SCAN", "Candidatos nao convergiram. Reiniciando 1o Scan...")
                         estado["candidatos"] = set()
                         estado["leitura_semente"] = None
 
         amostra_ram = ler_multiplos_enderecos(pid, list(estado["candidatos"])[:15])
-        valores_ram = [v for v in amostra_ram.values() if 0 <= v <= 2000000000]
+        valores_ram = [v for v in amostra_ram.values() if 1000 <= v <= 2000000000]
         zen_exibir = zen_ocr if zen_ocr is not None else (max(valores_ram) if valores_ram else zen_cache)
         if zen_exibir > 0:
             self.ultimo_zen_valido[pid] = zen_exibir
