@@ -21,6 +21,7 @@ if PASTA_AGENT not in sys.path:
 
 from core.windows import obter_clientes_mainmu, capturar_tela_janela_fundo, obter_geometria_cliente
 from core.ocr import ler_texto_imagem, preprocessar_para_ocr
+from core.logger import log_calibration
 
 try:
     import win32gui
@@ -29,7 +30,6 @@ except ImportError:
     win32gui = None
 
 CAMINHO_CONFIG_OCR = os.path.join(PASTA_RAIZ, "ocr_config.json")
-
 
 def carregar_config_ocr() -> dict:
     if os.path.exists(CAMINHO_CONFIG_OCR):
@@ -40,11 +40,9 @@ def carregar_config_ocr() -> dict:
             pass
     return {}
 
-
 def salvar_config_ocr(dados: dict):
     with open(CAMINHO_CONFIG_OCR, "w", encoding="utf-8") as f:
         json.dump(dados, f, indent=4, ensure_ascii=False)
-
 
 def obter_box_para_resolucao(resolucao: str):
     cfg = carregar_config_ocr()
@@ -54,22 +52,18 @@ def obter_box_para_resolucao(resolucao: str):
         return tuple(cfg["rel_box"])
     return None
 
-
 def focar_janela_jogo(hwnd):
-    """Traz a janela do MU para a frente do CMD antes de capturar no calibrador (Essencial para VMware)"""
     if not win32gui:
         return
     try:
         if win32gui.IsIconic(hwnd):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        # Simula tecla ALT para o Windows permitir SetForegroundWindow sem bloqueio
         ctypes.windll.user32.keybd_event(0x12, 0, 0, 0)
         ctypes.windll.user32.keybd_event(0x12, 0, 2, 0)
         win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.5)  # Aguarda meio segundo para a placa de video da VMware desenhar o jogo na frente
+        time.sleep(0.5)
     except Exception:
         pass
-
 
 def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> tuple:
     clientes = obter_clientes_mainmu()
@@ -93,7 +87,7 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
             escolhido_pid, escolhido_info = pid, info
 
     if not escolhido_info:
-        print("[CALIBRADOR] As janelas do MU estao minimizadas! Restaure ao menos uma janela com o inventario aberto.")
+        print("[CALIBRADOR] As janelas do MU estão minimizadas!")
         return None
 
     hwnd = escolhido_info["hwnd"]
@@ -102,22 +96,19 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
 
     geom = obter_geometria_cliente(hwnd)
     if not geom:
-        print("[CALIBRADOR] Nao foi possivel obter a geometria da janela.")
+        print("[CALIBRADOR] Não foi possível obter a geometria da janela.")
         return None
 
     _, _, largura, altura = geom
 
     print("\n========================================================")
     print(f" CALIBRADOR DE ZEN - Janela Base: {nome_char} (PID: {escolhido_pid})")
-    print(f" Resolucao Detectada: {resolucao}")
-    print(" -> Trazendo a janela do MU para a frente para capturar sem o CMD...")
+    print(f" Resolução Detectada: {resolucao}")
     print("========================================================")
 
     while True:
-        # Coloca a janela do MU na frente do terminal CMD antes de tirar a foto!
         focar_janela_jogo(hwnd)
-
-        img_janela = capturar_tela_janela_fundo(hwnd, (0, 0, largura, altura), forcar_tela_direta=True)
+        img_janela = capturar_tela_janela_fundo(hwnd, (0, 0, largura, altura))
         if img_janela is None:
             print("[ERRO] Falha ao capturar imagem da janela do jogo.")
             return None
@@ -132,12 +123,10 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
 
         x, y, w, h = [int(v) for v in roi]
         if w <= 0 or h <= 0:
-            print("[CALIBRADOR] Selecao cancelada pelo usuario.")
+            print("[CALIBRADOR] Seleção cancelada pelo usuário.")
             return None
 
         rel_box = (x, y, x + w, y + h)
-
-        # Recorta direto da imagem limpa que acabamos de capturar
         recorte_amostra = img_janela[y:y+h, x:x+w]
         valor_lido = ler_texto_imagem(recorte_amostra)
 
@@ -146,9 +135,9 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
         amostra_zoom = cv2.resize(recorte_amostra, (img_ocr_bgr.shape[1], img_ocr_bgr.shape[0]), interpolation=cv2.INTER_CUBIC)
 
         painel_preview = cv2.vconcat([amostra_zoom, img_ocr_bgr])
-
-        txt_zen = f"{valor_lido:,}".replace(",", ".") if valor_lido is not None else "FALHA NA LEITURA (None)"
-        print(f"\n[AMOSTRA OCR] Coordenadas: {rel_box} | Zen Lido: {txt_zen}")
+        txt_zen = f"{valor_lido:,}".replace(",", ".") if valor_lido is not None else "FALHA NA LEITURA"
+        
+        log_calibration(resolucao, rel_box, valor_lido)
 
         titulo_prev = f"Como o OCR enxerga: {txt_zen}"
         cv2.imshow(titulo_prev, painel_preview)
@@ -160,29 +149,28 @@ def calibrar_interativo(pid_alvo: int = None, forcar_resolucao: str = None) -> t
             f"Resolução: {resolucao}\n"
             f"Coordenada Relativa: {rel_box}\n\n"
             f"Valor de Zen lido pelo OCR:\n>>> {txt_zen} <<<\n\n"
-            f"A leitura está correta?\n"
-            f"• SIM = Salvar para todas as contas {resolucao}\n"
-            f"• NÃO = Selecionar novamente"
+            f"A área selecionada está correta?\n"
+            f"• Clique em SIM para salvar.\n"
+            f"• Clique em NÃO para selecionar novamente."
         )
         resposta = ctypes.windll.user32.MessageBoxW(0, msg, "Validação de Amostra - ZenMonitor", 0x03 | 0x20 | 0x40000)
         cv2.destroyAllWindows()
 
-        if resposta == 6:
+        if resposta == 6:  # SIM
             cfg = carregar_config_ocr()
             if "resolucoes" not in cfg:
                 cfg["resolucoes"] = {}
             cfg["resolucoes"][resolucao] = list(rel_box)
             cfg["rel_box"] = list(rel_box)
             salvar_config_ocr(cfg)
-            print(f"[OK] Calibragem salva com sucesso para a resolucao {resolucao}: {rel_box}!")
+            print(f"[OK] Calibragem salva com sucesso para a resolução {resolucao}: {rel_box}!")
             return rel_box
-        elif resposta == 7:
-            print("[!] Repetindo selecao da area do Zen...")
+        elif resposta == 7:  # NÃO
+            print("[!] Repetindo seleção da área do Zen...")
             continue
         else:
-            print("[CALIBRADOR] Operacao cancelada.")
+            print("[CALIBRADOR] Operação cancelada.")
             return None
-
 
 def garantir_calibragem_inicial() -> bool:
     clientes = obter_clientes_mainmu()
@@ -194,11 +182,10 @@ def garantir_calibragem_inicial() -> bool:
         if res != "Minimizado":
             box = obter_box_para_resolucao(res)
             if not box:
-                print(f"[!] Resolucao {res} ainda nao calibrada neste computador.")
+                print(f"[!] Resolução {res} ainda não calibrada neste computador.")
                 novo_box = calibrar_interativo(pid_alvo=pid, forcar_resolucao=res)
                 return novo_box is not None
     return True
-
 
 if __name__ == "__main__":
     calibrar_interativo()
