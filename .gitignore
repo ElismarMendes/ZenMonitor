@@ -1,6 +1,17 @@
+# Ambientes virtuais
 .venv/
+.venv-*/
 venv/
+ENV/
+
+# Cache do Python
 __pycache__/
-*.pyc
-.env
-*.json
+*.py[cod]
+*$py.class
+
+# Configuracoes locais de calibracao e enderecos de RAM por maquina
+ocr_config.json
+config_zen.json
+
+# Logs e arquivos temporarios
+*.log
