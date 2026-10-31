@@ -1,13 +1,21 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import subprocess
 import time
 import socket
 import ctypes
+import uuid
+import json
 
+# Garante o diretorio de trabalho correto logo de inicio
 PASTA_PROJETO = os.path.dirname(os.path.abspath(__file__))
+if PASTA_PROJETO:
+    os.chdir(PASTA_PROJETO)
+
 PYTHON_VENV = os.path.join(PASTA_PROJETO, ".venv", "Scripts", "python.exe")
 
+# Se a venv existir e nao estivermos nela, reinicia usando o python da venv
 if os.path.exists(PYTHON_VENV) and os.path.normcase(sys.executable) != os.path.normcase(PYTHON_VENV):
     print("[AUTO-FIX] Alternando automaticamente para o Python da .venv...")
     sys.exit(subprocess.call([PYTHON_VENV] + sys.argv))
@@ -17,9 +25,14 @@ try:
     import pytesseract
 except ImportError:
     print("[AUTO-FIX] Instalando dependencias ausentes...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", os.path.join(PASTA_PROJETO, "requirements.txt")])
-    import requests
-    import pytesseract
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", os.path.join(PASTA_PROJETO, "requirements.txt")])
+        import requests
+        import pytesseract
+    except Exception as e:
+        print(f"[ERRO CRITICO] Falha ao instalar dependencias: {e}")
+        input("Pressione ENTER para sair...")
+        sys.exit(1)
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -35,13 +48,52 @@ if os.path.exists(tesseract_path):
 
 sys.path.insert(0, os.path.join(PASTA_PROJETO, "local_agent"))
 
-from services.monitor_service import MonitorService
-from core.calibrator import garantir_calibragem_inicial, calibrar_interativo, salvar_config_ocr, carregar_config_ocr
-from core.windows import TIPO_AMBIENTE
-from core.logger import log_init, log_windows, log_sync
+try:
+    from services.monitor_service import MonitorService
+    from core.calibrator import garantir_calibragem_inicial, calibrar_interativo, salvar_config_ocr, carregar_config_ocr
+    from core.windows import TIPO_AMBIENTE, obter_clientes_mainmu
+    from core.logger import log_init, log_windows, log_sync
+    from core.memory import buscar_valor_4bytes
+except Exception as e:
+    print(f"[ERRO CRITICO] Falha ao importar modulos internos: {e}")
+    input("Pressione ENTER para sair...")
+    sys.exit(1)
 
 VPS_URL = "https://zen.brautosystem.com.br/api/v1/report"
-MACHINE_ID = socket.gethostname()
+
+# ==============================================================================
+# GERENCIAMENTO INTELIGENTE E ÚNICO DE MACHINE_ID (EVITA CONFLITOS NA VPS)
+# ==============================================================================
+CONFIG_INSTANCIA_FILE = "machine_uuid.json"
+
+def obter_machine_id():
+    # Permite definir um ID personalizado direto na linha de comando, ex: python agent_sender.py --id MeuPC
+    for i, arg in enumerate(sys.argv):
+        if arg == "--id" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+
+    hostname = socket.gethostname()
+    
+    # Se ja existir um ID unico salvo nesta pasta, reaproveita ele
+    if os.path.exists(CONFIG_INSTANCIA_FILE):
+        try:
+            with open(CONFIG_INSTANCIA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if "machine_id" in data:
+                    return data["machine_id"]
+        except Exception:
+            pass
+
+    # Caso contrario, gera um identificador exclusivo combinando hostname + sufixo aleatorio
+    unique_id = f"{hostname}-{uuid.uuid4().hex[:6]}"
+    try:
+        with open(CONFIG_INSTANCIA_FILE, "w", encoding="utf-8") as f:
+            json.dump({"machine_id": unique_id}, f)
+    except Exception:
+        pass
+    return unique_id
+
+MACHINE_ID = obter_machine_id()
 INTERVALO_SEGUNDOS = 5
 
 
@@ -55,12 +107,35 @@ def verificar_admin():
 def elevar_privilegio_se_necessario():
     if not verificar_admin() and "--no-admin" not in sys.argv:
         print("[AUTO-ELEVACAO] Solicitando permissao de Administrador para leitura direta de RAM...")
-        parametros = " ".join([f'"{arg}"' for arg in sys.argv])
-        res = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, parametros, PASTA_PROJETO, 1)
+        
+        script_path = os.path.abspath(__file__)
+        python_exec = PYTHON_VENV if os.path.exists(PYTHON_VENV) else sys.executable
+        
+        parametros = f'"{script_path}" ' + " ".join([f'"{arg}"' for arg in sys.argv[1:]])
+        
+        res = ctypes.windll.shell32.ShellExecuteW(None, "runas", python_exec, parametros, PASTA_PROJETO, 1)
         if int(res) > 32:
             sys.exit(0)
         else:
             print("[AVISO] Elevacao recusada. O agente rodara apenas via OCR (sem leitura de RAM).")
+
+
+def executar_teste_ram():
+    print("\n[DIAGNOSTICO] Testando acesso direto a RAM dos processos do MU...")
+    is_admin = verificar_admin()
+    print(f"[DIAGNOSTICO] Rodando como Administrador: {is_admin}")
+    print(f"[DIAGNOSTICO] Machine ID Ativo: {MACHINE_ID}")
+    
+    clientes = obter_clientes_mainmu()
+    if not clientes:
+        print("[DIAGNOSTICO] Nenhuma janela do MU Online encontrada para testar!")
+        return
+
+    for pid, info in clientes.items():
+        print(f"[DIAGNOSTICO] Testando PID {pid} ({info['name']})...")
+        cands = buscar_valor_4bytes(pid, 1000)
+        print(f"[DIAGNOSTICO] PID {pid} -> Resultado: {'SUCESSO (RAM Acessivel)' if len(cands) > 0 else 'FALHA (Sem acesso a memoria ou processo protegido)'}")
+    print("\n[DIAGNOSTICO] Teste concluido.")
 
 
 def iniciar_agente():
@@ -68,6 +143,10 @@ def iniciar_agente():
 
     if "--calibrar" in sys.argv:
         calibrar_interativo()
+        return
+
+    if "--test-ram" in sys.argv:
+        executar_teste_ram()
         return
 
     if "--reset-ram" in sys.argv:
@@ -85,6 +164,7 @@ def iniciar_agente():
 
     print("==================================================")
     log_init(sys.executable, TIPO_AMBIENTE, is_admin=is_admin)
+    print(f" ID da Maquina (Instancia): {MACHINE_ID}")
     print(f" Destino VPS: {VPS_URL}")
     print("==================================================")
 
@@ -119,5 +199,10 @@ def iniciar_agente():
 if __name__ == "__main__":
     try:
         iniciar_agente()
+    except Exception as e:
+        print(f"[ERRO FATAL] {e}")
+        import traceback
+        traceback.print_exc()
+        input("\nPressione ENTER para fechar a janela...")
     except KeyboardInterrupt:
         print("\nAgente encerrado pelo usuario.")
