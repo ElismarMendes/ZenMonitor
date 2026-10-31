@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import ctypes
@@ -8,6 +9,7 @@ import numpy as np
 import cv2
 from PIL import ImageGrab
 
+# Força o Windows a desativar o zoom de DPI para o Python capturar pixels reais 1:1
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -54,9 +56,14 @@ TIPO_AMBIENTE = identificar_ambiente()
 
 
 def obter_geometria_cliente(hwnd):
+    """
+    Retorna a resolucao interna real da area util do jogo (ex: 1024x768)
+    e a posicao exata na tela, ignorando barras de titulo e bordas do Windows.
+    """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or win32gui.IsIconic(hwnd):
         return None
     try:
+        # GetClientRect da dimensao interna exata configurada no usuario (ex: 800x600 ou 1024x768)
         _, _, largura, altura = win32gui.GetClientRect(hwnd)
         if largura <= 0 or altura <= 0:
             return None
@@ -67,6 +74,10 @@ def obter_geometria_cliente(hwnd):
 
 
 def converter_pct_para_box_cliente(hwnd, pct_box):
+    """
+    Converte a proporcao universal (0.0 a 1.0) para os pixels exatos 
+    da resolucao atual em que o usuario abriu o jogo.
+    """
     geom = obter_geometria_cliente(hwnd)
     if not geom or not pct_box or len(pct_box) != 4:
         return None, None
@@ -83,6 +94,10 @@ def converter_pct_para_box_cliente(hwnd, pct_box):
 
 
 def capturar_tela_janela_fundo(hwnd, rel_box, forcar_tela_direta=False):
+    """
+    Captura os pixels estritamente dentro da area util do cliente,
+    suportando tanto o BitBlt quanto o ImageGrab na VMware.
+    """
     if not win32gui or not hwnd or not win32gui.IsWindow(hwnd) or not rel_box:
         return None
 
@@ -209,7 +224,7 @@ def obter_clientes_mainmu():
 
     clientes = {}
     for pid, info in janelas_por_pid.items():
-        name = extrair_nome_inteligente(info["titulo"], pid)
+        name = extra_in = extrair_nome_inteligente(info["titulo"], pid)
         geom = obter_geometria_cliente(info["hwnd"])
         res_str = f"{geom[2]}x{geom[3]}" if geom else "Minimizado"
 
