@@ -4,6 +4,7 @@
 mod config;
 mod db;
 mod hub;
+mod ia;
 mod notify;
 mod ozt;
 mod tokens;
@@ -165,6 +166,7 @@ fn router(app: Shared) -> Router {
         .route("/ws/pair", get(ws_pair))
         .route("/ws/panel", get(ws_panel))
         .route("/api/state", get(api_state))
+        .route("/api/ia/teste", post(api_ia_teste))
         .route("/api/command", post(api_command))
         .route(
             "/api/auto_pairing",
@@ -346,6 +348,9 @@ async fn agent_session(socket: WebSocket, app: Shared, machine: String, new_toke
                             let text = format!("{machine}: {}{message}", if ok { "" } else { "FALHA — " });
                             tokio::spawn(async move { notify::send(&app2.http, &app2.cfg, &text).await });
                         }
+                        if id == 0 && !ok {
+                            tokio::spawn(analisar_falha(app.clone(), machine.clone(), message.clone()));
+                        }
                         push_result(&app, json!({"id": id, "machine": machine, "ok": ok, "message": message, "ts": now()})).await;
                     }
                     AgentMsg::Screenshot { id, char_name, png_base64 } => {
@@ -503,6 +508,67 @@ async fn refresh_deaths(app: &Shared) {
 }
 
 static RESULT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+// ---------------------------------------------------------------- IA (v5)
+
+/// Nomes conhecidos (PCs e chars) para anonimizar o que sai para a IA.
+async fn nomes_conhecidos(app: &Shared) -> (Vec<String>, Vec<String>) {
+    let h = app.hub.lock().await;
+    let pcs: Vec<String> = h.machines.keys().cloned().collect();
+    let mut chars: Vec<String> = h.machines.values().flat_map(|m| m.chars.keys().cloned()).collect();
+    chars.sort();
+    chars.dedup();
+    (pcs, chars)
+}
+
+/// Falha feita pelo agente sozinho: espera o log chegar e pede a causa provável à IA. Só lê.
+async fn analisar_falha(app: Shared, machine: String, message: String) {
+    let Some(cfg) = ia::config_em_disco() else { return };
+    if !cfg.ligada || cfg.provedores.iter().all(|p| p.chave.trim().is_empty()) {
+        return;
+    }
+    let chave: String = format!("{machine}|{}", message.chars().take(80).collect::<String>());
+    if let Err(motivo) = ia::reservar_publico(&chave, now(), &cfg) {
+        tracing::info!(%machine, motivo, "IA: análise pulada");
+        return;
+    }
+    tokio::time::sleep(Duration::from_secs(cfg.espera_log_s)).await;
+    let (pcs, chars) = nomes_conhecidos(&app).await;
+    let log = ia::trecho_do_log(&machine, 60);
+    let (pergunta, tabela) = ia::montar_pergunta(&format!("{machine}: {message}"), &log, &pcs, &chars);
+    match ia::perguntar(&app.http, &cfg, &pergunta).await {
+        Ok((provedor, resposta)) => {
+            let resposta = ia::desfazer(&resposta, &tabela);
+            tracing::warn!(%machine, provedor, "IA: análise da falha recebida");
+            let texto = format!("{machine} — análise da IA ({provedor}):\n{resposta}");
+            notify::send(&app.http, &app.cfg, &texto).await;
+            push_result(&app, json!({"id": 0, "machine": machine, "ok": true, "ia": true,
+                "message": format!("IA ({provedor}): {}", resposta.replace('\n', " ")), "ts": now()})).await;
+        }
+        Err(e) => tracing::warn!(%machine, erro = %e, "IA: nenhuma análise (o aviso normal já foi enviado)"),
+    }
+}
+
+/// Testa as chaves da IA sem esperar uma falha de verdade (token de admin).
+async fn api_ia_teste(State(app): State<Shared>, headers: HeaderMap) -> Response {
+    if !config::ct_eq(bearer(&headers).as_bytes(), app.cfg.admin_token.as_bytes()) {
+        return (StatusCode::UNAUTHORIZED, "token de admin inválido").into_response();
+    }
+    let Some(cfg) = ia::config_em_disco() else {
+        return Json(json!({"ok": false, "erro": "seção [ia] não encontrada no central.toml"})).into_response();
+    };
+    let pergunta = "AVISO DO BOT:\nPC_1: CHAR_1: depósito (Fortuna) falhou: a caixa do Use It não mostrou Fortuna do Imperador (2 tentativas)\n\nÚLTIMOS AVISOS E ERROS DO LOG DESSE PC:\n(teste de configuração, sem log)";
+    let mut por_provedor = Vec::new();
+    for p in cfg.provedores.iter().filter(|p| !p.chave.trim().is_empty()) {
+        let so = ia::IaConfig { provedores: vec![p.clone()], ..cfg.clone() };
+        let r = ia::perguntar(&app.http, &so, pergunta).await;
+        por_provedor.push(match r {
+            Ok((n, txt)) => json!({"provedor": n, "ok": true, "resposta": txt}),
+            Err(e) => json!({"provedor": p.nome, "ok": false, "erro": e}),
+        });
+    }
+    Json(json!({"ligada": cfg.ligada, "provedores": por_provedor})).into_response()
+}
 
 async fn push_result(app: &Shared, mut v: Value) {
     v["event_key"] = json!(format!("{}:{}",*BOOT,RESULT_SEQUENCE.fetch_add(1,Ordering::Relaxed)));

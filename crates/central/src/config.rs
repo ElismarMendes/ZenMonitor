@@ -48,6 +48,8 @@ pub struct CentralConfig {
     /// Não repetir o mesmo alerta no celular antes disso.
     pub notify_cooldown_s: u64,
     pub agents: Vec<AgentEntry>,
+    /// Analista de falhas por IA (v5). Fica por último: é uma tabela no TOML.
+    pub ia: crate::ia::IaConfig,
 }
 
 pub fn random_token(n: usize) -> String {
@@ -76,6 +78,7 @@ impl Default for CentralConfig {
             healthcheck_url: String::new(),
             notify_cooldown_s: 600,
             agents: vec![],
+            ia: Default::default(),
         }
     }
 }
@@ -139,7 +142,13 @@ impl CentralConfig {
     pub fn save(&self) -> anyhow::Result<()> {
         let p = Self::dir().join("central.toml");
         let tmp = p.with_extension("toml.tmp");
-        std::fs::write(&tmp, toml::to_string_pretty(self)?)?;
+        // A seção [ia] do arquivo em disco manda (as chaves são coladas à mão com a central
+        // rodando; regravar a cópia da memória apagaria o que foi colado).
+        let mut out = self.clone();
+        if let Some(ia) = crate::ia::config_em_disco() {
+            out.ia = ia;
+        }
+        std::fs::write(&tmp, toml::to_string_pretty(&out)?)?;
         std::fs::rename(&tmp, &p)?;
         Ok(())
     }
