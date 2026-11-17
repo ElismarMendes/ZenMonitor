@@ -968,8 +968,11 @@ async fn ticker(app: Shared) {
     let mut iv = tokio::time::interval(Duration::from_secs(1));
     loop {
         iv.tick().await;
-        let state = build_state(&app).await.to_string();
-        let _ = app.panel_tx.send(state);
+        // v5: sem painel aberto não monta nem serializa o estado (~50 KB por segundo à toa).
+        if app.panel_tx.receiver_count() > 0 {
+            let state = build_state(&app).await.to_string();
+            let _ = app.panel_tx.send(state);
+        }
         let ev = app.hub.lock().await.alert_events(now(), app.cfg.notify_cooldown_s);
         for m in &ev.started {
             tracing::info!(alerta_comecou = %m);
