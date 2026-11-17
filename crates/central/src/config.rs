@@ -37,8 +37,6 @@ pub struct CentralConfig {
     pub test_machines: Vec<String>,
     /// v4 (mapas): pasta do jogo NESTE PC, de onde o painel lê os terrenos (Data\\WorldN).
     pub game_dir: String,
-    /// Execução experimental de rotas, limitada às máquinas do canal de teste.
-    pub navigation_execution: bool,
     pub stopped_after_s: u64,
     pub db_path: String,
     /// Ex.: "https://ntfy.sh/zen-<algo-secreto>". Vazio = desligado.
@@ -69,7 +67,6 @@ impl Default for CentralConfig {
             token_max_age_days: 30,
             blocked_machines: vec![],
             test_machines: vec![],
-            navigation_execution: false,
             game_dir: r"C:\The Classic Games\The Classic MU".into(),
             stopped_after_s: 180,
             db_path: "central.db".into(),

@@ -417,7 +417,6 @@ impl InputLease {
     }
 
     fn validate(&self, foreground: bool) -> Result<(), String> {
-        crate::navigation::check()?;
         let hwnd = HWND(self.hwnd as *mut _);
         if super::capture::window_pid(self.hwnd) != Some(self.pid)
             || zen_core::title::parse(&window_label(hwnd)).name != self.name

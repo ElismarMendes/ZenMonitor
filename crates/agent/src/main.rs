@@ -151,7 +151,6 @@ mod app {
             tracing::info!("MODO TESTE: só o char \"Teste\" do fake-client; o jogo real é ignorado");
         }
         let version = zen_agent::update::version_label(&upd);
-        zen_agent::navigation::enable(cfg.navigation_enabled);
         tracing::info!(versao = %version, maquina = %cfg.machine, "agente iniciando");
         // Trava manual (dono, 10/11 19:53): a automação não espera mais o "PC sem uso".
         if !test_mode {
@@ -267,7 +266,6 @@ mod app {
         let mut cpu = health::CpuMeter::new();
         let started = Instant::now();
         let mut seq = 0u64;
-        let mut nav_feed=zen_agent::navigation::Feed::default();
         let mut last_error: Option<String> = None;
         let mut untitled: std::collections::HashMap<u32, String> = Default::default();
         // Vida do Dark Raven (barra no topo da tela) por char: (valor, quando leu). Lida a cada
@@ -369,7 +367,6 @@ mod app {
                 let pid = d.pid;
                 if let Some(m) = confirm_death(&access, &mut monitor, d) {
                     if let AgentMsg::Death { char_name, .. } = &m {
-                        zen_agent::navigation::invalidate(char_name);
                         // Spot "seu": estava farmando nele havia 1 min ou mais. Aí volta o mais
                         // rápido possível, seja PK ou monstro. Chegou há pouco = pode ter entrado no
                         // spot de outro (ou voltou e morreu de novo): espera o chat dizer quem matou.
@@ -449,15 +446,6 @@ mod app {
             let mut chars = monitor.cycle(&access);
             // Recuperações que terminaram.
             while let Ok((name, r)) = rec.done_rx.try_recv() {
-                if let Some(id)=rec.route_jobs.remove(&name) {
-                    rec.busy.store(false,std::sync::atomic::Ordering::SeqCst);
-                    let ok=r.is_ok();let message=match r {Ok(s)|Err(s)=>s};
-                    if ok {tracing::info!(id,char=%name,resultado=%message,"NAV_RESULT: rota concluída e destino confirmado");}
-                    else {tracing::warn!(id,char=%name,motivo=%message,"NAV_RESULT: rota interrompida sem confirmar chegada");}
-                    rec.set_status(&name,message.clone());
-                    let _=out_tx.try_send(AgentMsg::RouteResult{id,ok,message});
-                    continue;
-                }
                 if let Some(delay) = raven_cooldown(&r) { rec.raven_block.insert(name.clone(), now() + delay); }
                 let ok = r.is_ok();
                 if ok {rec.return_owned.remove(&name);}
@@ -1042,13 +1030,6 @@ mod app {
             }
 
             seq += 1;
-            if cfg.navigation_enabled {
-                for c in &chars {
-                    if let Some(snapshot)=nav_feed.observe(c,access.process_start(c.pid).unwrap_or(0),seq,rec.is_busy()) {
-                        let _=out_tx.try_send(AgentMsg::NavigationSnapshot{snapshot});
-                    }
-                }
-            }
             let msg = AgentMsg::Report {
                 seq,
                 sent_at: now(),
@@ -1114,7 +1095,6 @@ mod app {
 
     /// Recuperação até o spot: uma por vez, numa thread (os relatórios continuam saindo).
     struct Recovery {
-        route_jobs: std::collections::HashMap<String,u64>,
         machines: std::collections::HashMap<String, zen_core::recovery::RecoveryMachine>,
         busy: std::sync::Arc<std::sync::atomic::AtomicBool>,
         status: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
@@ -1158,7 +1138,6 @@ mod app {
             let (cause_tx, cause_rx) = std::sync::mpsc::channel();
             Self {
                 pending: Default::default(),
-                route_jobs: Default::default(),
                 deposit_block: Default::default(),
                 deposit_wait_reason: Default::default(),
                 farm_since: Default::default(),
@@ -1222,31 +1201,6 @@ mod app {
 
         fn is_busy(&self) -> bool {
             self.busy.load(std::sync::atomic::Ordering::SeqCst)
-        }
-
-        fn start_route(&mut self,id:u64,name:&str,hwnd:isize,route:zen_core::routes::RouteDefinition,context:zen_core::routes::ObserverContext,install:bool)->Result<(),String>{
-            if self.is_busy(){return Err("já há uma automação em andamento".into());}
-            let current=zen_agent::navigation::snapshot(name).ok_or("radar ainda sem observação")?;
-            if !current.usable()||!context.same_observer(&current.context){return Err("contexto de navegação mudou; refaça a prévia".into());}
-            route.validate()?;
-            if route.id.is_empty()||route.revision==0{return Err("rota sem revisão salva".into());}
-            zen_agent::navigation::authorize(&route.id)?;
-            if route.world!=current.position.world{return Err("entre primeiro no mapa da rota".into());}
-            self.busy.store(true,std::sync::atomic::Ordering::SeqCst);
-            self.route_jobs.insert(name.into(),id);
-            let (busy,status,tx,name)=(self.busy.clone(),self.status.clone(),self.done_tx.clone(),name.to_string());
-            std::thread::spawn(move||{
-                let cb=|s:String|{if let Ok(mut m)=status.lock(){m.insert(name.clone(),s);}};
-                let expected=context.clone();let was_on=zen_agent::win::nav::helper_state(hwnd)==Some(true);
-                let r=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||zen_agent::navigation::scoped(context,&route.id,||zen_agent::win::navigation::execute(hwnd,&name,&route,&cb))))
-                    .unwrap_or_else(|_|Err("NAV_PANIC: executor interrompido; input liberado".into()));
-                if r.is_err()&&was_on&&!input::manual_mode()&&net::ONLINE.load(std::sync::atomic::Ordering::SeqCst)
-                    &&zen_agent::navigation::snapshot(&name).is_some_and(|s|s.usable()&&expected.same_observer(&s.context)) {
-                    zen_agent::navigation::scoped(expected,"",||{if let Ok(_s)=input::Session::begin(hwnd){let _=zen_agent::win::nav::set_helper(hwnd,true);}});
-                }
-                let r=r.and_then(|s|{if install{zen_agent::navigation::install(&name,&route)?;}Ok(s)});
-                let _=busy;let _=tx.send((name,r));
-            });Ok(())
         }
 
         fn set_status(&self, name: &str, s: String) {
@@ -1753,19 +1707,10 @@ mod app {
                 chat_enabled,
                 stopped_after_s: _,
                 automation_enabled,
-                navigation_enabled,
             } => {
                 // stopped_after_s é regra do central; aqui só o que o agente usa.
                 if let Some(v) = chat_enabled {
                     cfg.chat_enabled = v;
-                }
-                if let Some(v) = navigation_enabled {
-                    cfg.navigation_enabled = v;
-                    zen_agent::navigation::enable(v);
-                    // Invalidate approvals and interrupt a running experimental route.
-                    // Enabling this option never schedules a legacy return by itself.
-                    zen_agent::navigation::disconnected();
-                    tracing::warn!(ligada=v,"navegação experimental alterada pelo painel");
                 }
                 if let Some(v) = automation_enabled {
                     let was = cfg.automation_enabled;
@@ -1788,9 +1733,6 @@ mod app {
                     }
                     if let Some(v) = automation_enabled {
                         c.automation_enabled = v;
-                    }
-                    if let Some(v) = navigation_enabled {
-                        c.navigation_enabled = v;
                     }
                 }) {
                     Ok(()) => vec![ok("configuração salva")],
@@ -2140,24 +2082,6 @@ mod app {
                 tracing::info!("reiniciando por comando");
                 std::process::exit(3);
             }
-            Command::RunRoute{char_name,route,context,install_for_recovery}=>{
-                let rejected=|message:&str|vec![AgentMsg::RouteResult{id,ok:false,message:message.into()}];
-                if !cfg.navigation_enabled||!cfg.automation_enabled||monitor.ram_paused||cfg.no_automation.contains(&char_name){return rejected("navegação experimental/automação não habilitada para este personagem");}
-                if context.char_name!=char_name{return rejected("personagem do contexto divergente");}
-                let Some(w)=access.list_windows().into_iter().find(|w|w.pid==context.pid&&zen_core::title::parse(&w.title).name.as_deref()==Some(char_name.as_str()))else{return rejected("processo/personagem não encontrado");};
-                let own_spot=matches!(route.target,zen_core::routes::RouteTarget::Spot)
-                    &&route.waypoints.last().is_some_and(|goal|zen_agent::spot_service::home(cfg,&char_name)==Some(*goal)||zen_agent::spot_service::active(&char_name).is_some_and(|s|s.spot==*goal));
-                match rec.start_route(id,&char_name,w.hwnd,route,context,install_for_recovery){
-                    Ok(())=>{
-                        if own_spot{rec.hold.remove(&char_name);}
-                        else{rec.hold.insert(char_name.clone(),"foi até rota manual; retorno ao spot aguarda comando do dono".into());}
-                        vec![ok("rota aprovada iniciada")]
-                    },
-                    Err(e)=>vec![AgentMsg::RouteResult{id,ok:false,message:e}]
-                }
-            }
-            Command::RevokeRoute{route_id}=>match zen_agent::navigation::revoke(&route_id){Ok(())=>vec![ok("rota desativada")],Err(e)=>vec![err(&e)]},
-            Command::SyncRoutes{active_ids}=>match zen_agent::navigation::retain(&active_ids){Ok(())=>vec![],Err(e)=>vec![err(&e)]},
             Command::CheckUpdate => vec![err("atualização automática entra na fase 4")],
         }
     }

@@ -74,7 +74,6 @@ pub async fn run(mut cfg: NetConfig, mut outgoing: mpsc::Receiver<AgentMsg>, com
             }
         }
         // Enquanto espera, continua aceitando relatórios para o buffer.
-        crate::navigation::disconnected();
         let deadline = tokio::time::sleep(Duration::from_secs(backoff));
         tokio::pin!(deadline);
         loop {
@@ -123,7 +122,6 @@ async fn pair(cfg: &NetConfig) -> anyhow::Result<String> {
 }
 
 fn push_bounded(q: &mut VecDeque<AgentMsg>, m: AgentMsg, cap: usize) {
-    if matches!(m,AgentMsg::NavigationSnapshot{..}){return;}
     // Só relatórios e mortes vão para o buffer; respostas de comando antigas não têm valor.
     if matches!(m, AgentMsg::Report { .. } | AgentMsg::Death { .. }) {
         if q.len() >= cap {
@@ -161,7 +159,7 @@ async fn connect_and_serve(
     tx.send(Message::Text(serde_json::to_string(&hello)?)).await?;
     CONNECTED.store(true, std::sync::atomic::Ordering::SeqCst);
     ONLINE.store(true,std::sync::atomic::Ordering::SeqCst);
-    struct Online;impl Drop for Online{fn drop(&mut self){ONLINE.store(false,std::sync::atomic::Ordering::SeqCst);crate::navigation::disconnected();}}
+    struct Online;impl Drop for Online{fn drop(&mut self){ONLINE.store(false,std::sync::atomic::Ordering::SeqCst);}}
     let _online=Online;
     tracing::info!(url = %cfg.url, "conectado ao central; reenviando {} relatórios guardados", pending.len());
     while let Some(m) = pending.pop_front() {
@@ -175,8 +173,7 @@ async fn connect_and_serve(
     loop {
         tokio::select! {
             m = outgoing.recv() => {
-                let Some(mut m) = m else { return Ok(Outcome::Closed) };
-                if let AgentMsg::NavigationSnapshot{snapshot}=&mut m {if !crate::navigation::wire_snapshot(snapshot){continue;}}
+                let Some(m) = m else { return Ok(Outcome::Closed) };
                 let txt = serde_json::to_string(&m)?;
                 if let Err(e) = tx.send(Message::Text(txt)).await {
                     push_bounded(pending, m, cfg.buffer);

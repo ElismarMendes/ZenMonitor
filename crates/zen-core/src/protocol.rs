@@ -106,8 +106,6 @@ pub struct Health {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", serde(tag = "type", rename_all = "snake_case"))]
 pub enum AgentMsg {
-    NavigationSnapshot { snapshot: crate::routes::RadarSnapshot },
-    RouteResult { id:u64, ok:bool, message:String },
     SpotLease { request_id: u64, char_name: String, spot: crate::spots::Spot, release: bool },
     /// Primeira mensagem em `/ws/pair` (sem token): pede um token para esta máquina.
     /// `install_id` é gerado uma vez por instalação e impede outro PC de "roubar" o nome.
@@ -167,9 +165,6 @@ pub enum AgentMsg {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", serde(tag = "cmd", rename_all = "snake_case"))]
 pub enum Command {
-    RunRoute { char_name:String, route:crate::routes::RouteDefinition, context:crate::routes::ObserverContext, install_for_recovery:bool },
-    RevokeRoute { route_id:String },
-    SyncRoutes { active_ids:Vec<String> },
     CheckUpdate,
     RestartAgent,
     RelockRam {
@@ -185,9 +180,6 @@ pub enum Command {
         /// Liga/desliga a automação de teclado/mouse no PC (interruptor de pânico remoto).
         #[cfg_attr(feature = "serde", serde(default))]
         automation_enabled: Option<bool>,
-        /// Experimento de rotas: opção explícita, independente da automação legada.
-        #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
-        navigation_enabled: Option<bool>,
     },
     /// Grava a posição ATUAL do char (lida na tela, tem de ser Kanturu) como o spot dele.
     SaveSpot {

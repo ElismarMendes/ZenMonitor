@@ -1325,14 +1325,6 @@ pub fn recover_in(hwnd: isize, t: &Terrain, spot: (i32, i32), dest: Dest, status
         }
     }
     status(format!("andando até o spot {spot:?}"));
-    // Somente revisões explicitamente instaladas no agente; a main continua no caminho legado.
-    if let Some(name)=CHAR_NAMES.lock().ok().and_then(|m|m.as_ref().and_then(|m|m.get(&hwnd).cloned())) {
-        if let Some(route)=crate::navigation::recovery_route(&name,zen_core::spots::Spot{world:t.world,x:spot.0,y:spot.1}) {
-            let context=wait_route_map(hwnd,&name,t.world,status)?;
-            ensure_action_map(hwnd, dest)?;
-            crate::navigation::scoped(context,&route.id,||super::navigation::walk_points(hwnd,t,&route,status))?;
-        }
-    }
     let mut walked = walk_with_arrival(hwnd, t, spot, WalkArrival::Spot, status);
     if let Err(e) = &walked { if e.starts_with("SPOT_") { return Err(e.clone()); } }
     // Caminhada longa que parou no meio (limite de 4 min, janela que perdeu o foco): AMUMU em
@@ -2037,57 +2029,17 @@ fn npc_px(at: (i32, i32), npc: (f64, f64)) -> (i32, i32) {
     (CENTER.0 + px.round() as i32, CENTER.1 + py.round() as i32)
 }
 
-pub(super) fn route_scene(world:u8,npcs:Vec<(i32,i32)>) {
-    CUR_WORLD.store(world,std::sync::atomic::Ordering::SeqCst);
-    if let Ok(mut live)=LIVE_NPCS.lock(){*live=npcs;}
-}
-pub(super) fn route_legacy_leg(hwnd:isize,t:&Terrain,target:(i32,i32),spot:bool,status:&dyn Fn(String))->Result<(i32,i32),String>{
-    walk_with_arrival(hwnd,t,target,if spot{WalkArrival::Spot}else{WalkArrival::Exact},status)
-}
-pub(super) fn route_npc_adjust(hwnd:isize,t:&Terrain,target:(i32,i32),status:&dyn Fn(String))->Result<(i32,i32),String>{
-    walk_with_arrival(hwnd,t,target,WalkArrival::Trainer,status)
-}
-pub(super) fn route_step_px(at:(i32,i32),to:(i32,i32))->(i32,i32){
-    let direction=((to.0-at.0) as f64,(to.1-at.1) as f64);
-    avoid_npc(at,|angle|to_pixels(direction,angle,None,0.0,HOLD_RADIUS))
-}
-#[cfg(test)]mod navigation_cursor_tests {
-    use super::*;
-    #[test]fn rota_nova_reutiliza_protecao_de_clique_do_guardian() {
-        let previous=CUR_WORLD.swap(KANTURU_WORLD,std::sync::atomic::Ordering::SeqCst);
-        let at=(31,216);let raw=npc_step_px(at,(34,217));
-        assert!(on_npc(at,raw),"a mira direta cruza a área clicável do Guardian");
-        let corrected=route_step_px(at,(34,217));assert!(!on_npc(at,corrected));
-        CUR_WORLD.store(previous,std::sync::atomic::Ordering::SeqCst);
-    }
-}
-pub(super) fn route_settle(hwnd:isize)->Result<(i32,i32),String>{npc_still(hwnd)}
-fn wait_route_map(hwnd:isize,name:&str,world:u8,status:&dyn Fn(String))->Result<zen_core::routes::ObserverContext,String>{
-    let mut pid=0;
-    unsafe {windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(windows::Win32::Foundation::HWND(hwnd as *mut _),Some(&mut pid));}
-    let waiting=std::time::Instant::now();
-    let mut announced=false;
-    loop {
-        if input::manual_mode(){return Err("automação pausada enquanto aguardava confirmação do mapa".into());}
-        if !crate::net::ONLINE.load(std::sync::atomic::Ordering::SeqCst){return Err("NAV_DISCONNECTED: servidor indisponível".into());}
-        if let Some(s)=crate::navigation::confirmed_snapshot(name,pid,world){return Ok(s.context);}
-        if waiting.elapsed()>=std::time::Duration::from_secs(20){
-            tracing::warn!(char=%name,world,pid,"rota: mapa não confirmado após aguardar o coletor");
-            return Err("NAV_STALE: mapa não confirmado pelo radar em 20 segundos".into());
-        }
-        if !announced {status("aguardando confirmação do mapa após o Move, sem repetir cliques".into());announced=true;}
-        // Only inspect cached samples; no additional memory reads or captures.
-        sleep(200);
-    }
-}
-pub(super) fn route_npc_click(hwnd:isize,at:(i32,i32),npc:&zen_core::routes::NpcTarget,lift:i32)->Result<(),String>{
-    if npc.name.eq_ignore_ascii_case("Trainer")&&trainer_text(hwnd,TRAINER_TITLE){return Ok(());}
-    let (x,y)=npc_px(at,(npc.location.x as f64,npc.location.y as f64));
+/// Clica num NPC lido da memória e espera a janela dele (Trainer: título próprio; os demais:
+/// diálogo padrão de NPC).
+fn npc_click(hwnd:isize,at:(i32,i32),name:&str,location:(i32,i32),lift:i32)->Result<(),String>{
+    let trainer=name.eq_ignore_ascii_case("Trainer");
+    if trainer&&trainer_text(hwnd,TRAINER_TITLE){return Ok(());}
+    let (x,y)=npc_px(at,(location.0 as f64,location.1 as f64));
     input::run(hwnd,&[Step::Click{x,y:y-lift}])?;
     let start=std::time::Instant::now();
     while start.elapsed().as_secs()<5 {
         if input::manual_mode(){return Err("interação pausada".into());}
-        if npc.name.eq_ignore_ascii_case("Trainer") {if trainer_text(hwnd,TRAINER_TITLE){return Ok(());}}
+        if trainer {if trainer_text(hwnd,TRAINER_TITLE){return Ok(());}}
         else if npc_dialog_open(hwnd){return Ok(());}
         sleep(150);
     }
@@ -3620,13 +3572,6 @@ pub struct RavenReport {
 
 /// De onde o clique no Trainer funciona: até 3 tiles do NPC (só vale em Lorencia).
 const TRAINER_CLICK_RANGE: i32 = 3;
-fn calibrated_trainer_route(name:&str)->zen_core::routes::RouteDefinition {
-    use zen_core::{routes::{RouteDefinition,RouteTarget,NpcTarget},spots::Spot};
-    let interaction=Spot{world:LORENCIA_WORLD,x:122,y:109};
-    RouteDefinition{id:"builtin-trainer".into(),revision:1,name:format!("Raven: aproximação calibrada de {name}"),world:LORENCIA_WORLD,
-        waypoints:vec![interaction],target:RouteTarget::Npc{npc:NpcTarget{class:226,name:"Trainer".into(),
-            location:Spot{world:LORENCIA_WORLD,x:122,y:110},interaction,radius:1}},bindings:vec![],return_route:None}
-}
 
 /// Garante que o char está em Lorencia e perto do Trainer, lendo a posição de verdade. Perto
 /// (até 2 tiles) = não anda. Longe = caminhada completa com desvio. Se a rota falhar (tile de
@@ -3722,24 +3667,7 @@ pub fn restore_raven(hwnd: isize, lor: &Terrain, manual: bool, status: &dyn Fn(S
     // a restauração (só depois de esgotar as 3 tentativas).
     let mut open = false;
     let mut last_err = String::new();
-    if crate::navigation::enabled() {
-        let name=CHAR_NAMES.lock().ok().and_then(|m|m.as_ref().and_then(|m|m.get(&hwnd).cloned()))
-            .ok_or("Raven: personagem não identificado para navegação experimental")?;
-        let route=calibrated_trainer_route(&name);
-        let context=wait_route_map(hwnd,&name,LORENCIA_WORLD,status)?;
-        // Internal path of the explicitly requested Raven action: it does not
-        // install a route or accept an arbitrary command from the network.
-        crate::navigation::scoped(context,"",||->Result<(),String>{
-            ensure_action_map(hwnd,Dest::Lorencia)?;
-            status("Raven: aproximação calibrada com desvio e interação confirmada".into());
-            super::navigation::walk_points(hwnd,lor,&route,status)?;
-            let zen_core::routes::RouteTarget::Npc{npc}=&route.target else {unreachable!()};
-            super::navigation::interact(hwnd,&name,npc,lor,&route,status)
-        })?;
-        open=true;
-    }
     for (k, lift) in [40, 20, 60].into_iter().enumerate() {
-        if open {break;}
         let pos = match approach_trainer(hwnd, lor, status) {
             Ok(p) => p,
             Err(e) => {
@@ -3800,11 +3728,6 @@ pub fn restore_raven(hwnd: isize, lor: &Terrain, manual: bool, status: &dyn Fn(S
         sleep(700);
         ensure_action_map(hwnd, Dest::Lorencia)?;
         let at = npc_still(hwnd)?;
-        let mut target = zen_core::routes::NpcTarget {
-            class: 226, name: "Trainer".into(),
-            location: zen_core::spots::Spot {world:LORENCIA_WORLD,x:TRAINER_TILE.0,y:TRAINER_TILE.1},
-            interaction: zen_core::spots::Spot {world:LORENCIA_WORLD,x:at.0,y:at.1}, radius:3,
-        };
         let read_trainer=|at|->Option<(i32,i32)>{
             let npcs:Vec<_>=objects_near(hwnd,at)?.into_iter().filter(|o|
                 o.kind==zen_core::objects::Kind::Npc && o.class==226 && o.name=="Trainer"
@@ -3817,11 +3740,9 @@ pub fn restore_raven(hwnd: isize, lor: &Terrain, manual: bool, status: &dyn Fn(S
         let second=read_trainer(second_at).ok_or("Trainer: NPC ausente ou ambíguo na segunda confirmação")?;
         if second_at!=at || second!=first {return Err("Trainer: personagem/NPC mudou durante a confirmação; menu não reaberto".into());}
         if cheb(second_at,second)>TRAINER_CLICK_RANGE {return Err("Trainer: personagem fora da área de interação; menu não reaberto".into());}
-        target.location.x=second.0;
-        target.location.y=second.1;
         tracing::warn!(hwnd,posicao=?at,"Raven: reabrindo uma vez o Trainer após menu vazio, sem nova caminhada");
         status("Raven: Trainer abriu sem botões; reabrindo uma única vez".into());
-        route_npc_click(hwnd,second_at,&target,40)?;
+        npc_click(hwnd,second_at,"Trainer",second,40)?;
         if !wait_for(hwnd, TRAINER_RESTORE, 5000) {
             save_error_shot(hwnd, "Trainer: menu continuou vazio após uma reabertura confirmada");
             close(hwnd);
@@ -3906,25 +3827,6 @@ mod npc_window_tests {
         assert!(matches(&yousee,TRAINER_RESTORE));
         let empty=capture::Image{w:116,h:23,bgra:vec![0;116*23*4]};
         assert!(!trainer_pattern(&empty,&Bits::from_text(RESTORE_TXT)));
-    }
-    #[test]
-    fn trainer_calibrado_alcanca_interacao_por_dentro_da_cerca() {
-        let terrain=Terrain::from_client_file(include_bytes!("../../../zen-core/tests/fixtures/terrain/EncTerrain1.att")).unwrap();
-        let route=calibrated_trainer_route("YouSee");
-        route.validate().unwrap();
-        for(x,y) in [(116,122),(117,129),(119,113),(122,107),(118,137)] {
-            let origin=zen_core::spots::Spot{world:1,x,y};
-            let plan=zen_core::navigation::plan(&terrain,origin,&route).unwrap();
-            let arrival=*plan.segments.last().unwrap().last().unwrap();
-            assert!(route.arrived(0,arrival));
-            assert!(arrival.near(zen_core::spots::Spot{world:1,x:122,y:110},1));
-            let path:Vec<_>=plan.segments[0].iter().map(|p|(p.x,p.y)).collect();
-            for at in path.iter().copied().take(path.len().saturating_sub(1)) {
-                if !route.arrived(0,zen_core::spots::Spot{world:1,x:at.0,y:at.1}) {
-                    assert!(zen_core::navigation::next_step(&terrain,at,&path).is_some(),"cache não deve perder o próximo passo em {at:?}");
-                }
-            }
-        }
     }
     #[test]
     fn csrf_reconhece_zyro_lateral_sem_confundir_com_inventario_do_x9901() {

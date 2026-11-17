@@ -1,8 +1,7 @@
 # ZenMonitor — Base de conhecimento técnica
 
-> Evolução de 15/11/2026: [radar, navegação e editor de rotas](navegacao-editor.md),
-> na branch `codex/navegacao`. A base de produção preservada é a [main +106](base-main-v106.md).
-> A descrição histórica abaixo permanece datada; os contratos novos estão no documento da navegação.
+> 17/11/2026 (v5): o experimento de radar, navegação e editor de rotas foi removido.
+> A estável de produção é a tag `estavel-138`. A arquitetura nova está em [V5.md](V5.md).
 
 Documento de referência para qualquer sessão de desenvolvimento (humana ou com IA).
 Estado descrito: 12/11/2026, branch `v4`, publicação estável 76, canal de teste 78.

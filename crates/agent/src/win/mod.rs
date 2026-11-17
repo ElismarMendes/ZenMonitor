@@ -8,7 +8,7 @@ pub mod input;
 pub mod viewport;
 pub mod memory;
 pub mod nav;
-pub mod navigation;
+
 pub mod spots;
 pub mod objects;
 pub mod ocr;

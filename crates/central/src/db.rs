@@ -8,8 +8,6 @@ pub async fn open(path: &str) -> anyhow::Result<SqlitePool> {
         .journal_mode(SqliteJournalMode::Wal);
     let pool = SqlitePoolOptions::new().max_connections(4).connect_with(opts).await?;
     for stmt in [
-        "CREATE TABLE IF NOT EXISTS route_revisions (id TEXT NOT NULL, revision INTEGER NOT NULL, definition TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, ts INTEGER NOT NULL, PRIMARY KEY(id,revision))",
-        "CREATE TABLE IF NOT EXISTS route_runs (command_id INTEGER NOT NULL, machine TEXT NOT NULL, route_id TEXT NOT NULL, revision INTEGER NOT NULL, status TEXT NOT NULL, ts INTEGER NOT NULL, message TEXT, PRIMARY KEY(command_id,machine))",
         "CREATE TABLE IF NOT EXISTS zen_points (machine TEXT NOT NULL, char TEXT NOT NULL, ts INTEGER NOT NULL, zen INTEGER NOT NULL)",
         "CREATE INDEX IF NOT EXISTS zen_points_ts ON zen_points(ts)",
         "CREATE TABLE IF NOT EXISTS pk_events (ts INTEGER NOT NULL, killer TEXT NOT NULL, killer_kind TEXT NOT NULL, victim TEXT NOT NULL, machine TEXT NOT NULL)",
@@ -20,38 +18,7 @@ pub async fn open(path: &str) -> anyhow::Result<SqlitePool> {
     ] {
         sqlx::query(stmt).execute(&pool).await?;
     }
-    migrate_route_runs(&pool).await?;
-    sqlx::query("UPDATE route_runs SET status='interrompida',message='central reiniciado; chegada não confirmada',finished_at=? WHERE status='enviada'").bind(crate::now() as i64).execute(&pool).await?;
     Ok(pool)
-}
-
-async fn migrate_route_runs(pool:&SqlitePool)->anyhow::Result<()> {
-    let columns=sqlx::query("PRAGMA table_info(route_runs)").fetch_all(pool).await?;
-    if !columns.iter().any(|c|c.get::<String,_>("name")=="char_name") {
-        sqlx::query("ALTER TABLE route_runs ADD COLUMN char_name TEXT NOT NULL DEFAULT ''").execute(pool).await?;
-    }
-    if !columns.iter().any(|c|c.get::<String,_>("name")=="finished_at") {
-        sqlx::query("ALTER TABLE route_runs ADD COLUMN finished_at INTEGER").execute(pool).await?;
-    }
-    sqlx::query("CREATE INDEX IF NOT EXISTS route_runs_observer ON route_runs(machine,char_name,ts DESC)").execute(pool).await?;
-    Ok(())
-}
-
-#[cfg(test)]
-mod route_migration_tests {
-    use super::*;
-    #[tokio::test]
-    async fn old_route_history_is_preserved_without_inventing_character_identity() {
-        let pool=SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
-        sqlx::query("CREATE TABLE route_runs(command_id INTEGER,machine TEXT,route_id TEXT,revision INTEGER,status TEXT,ts INTEGER,message TEXT,PRIMARY KEY(command_id,machine))").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO route_runs VALUES(7,'PC1','route',1,'concluída',100,'chegada confirmada')").execute(&pool).await.unwrap();
-        migrate_route_runs(&pool).await.unwrap();migrate_route_runs(&pool).await.unwrap();
-        let row=sqlx::query("SELECT * FROM route_runs WHERE command_id=7").fetch_one(&pool).await.unwrap();
-        assert_eq!(row.get::<String,_>("char_name"),"");
-        assert_eq!(row.get::<String,_>("message"),"chegada confirmada");
-        assert_eq!(row.get::<i64,_>("ts"),100);
-        assert_eq!(row.get::<Option<i64>,_>("finished_at"),None);
-    }
 }
 
 pub async fn insert_zen(pool: &SqlitePool, rows: &[(String, String, u64, u64)]) -> anyhow::Result<()> {

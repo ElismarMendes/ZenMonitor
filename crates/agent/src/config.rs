@@ -5,8 +5,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
-    /// Experimento opt-in; preservar a execução legada da main +106 por padrão.
-    pub navigation_enabled: bool,
     /// Coordenação e fallback usam os leitores e o movimento existentes.
     pub spot_fallback: bool,
     pub spot_secondary_maps: Vec<String>,
@@ -119,7 +117,6 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            navigation_enabled:false,
             spot_fallback: true,
             spot_secondary_maps: vec!["Arena".into(), "Lost Tower".into(), "Dungeon".into()],
             spot_primary_retry_s: 600,

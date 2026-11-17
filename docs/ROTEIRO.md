@@ -1,7 +1,7 @@
 # Roteiro
 
-> Etapa experimental atual: [radar, navegação e editor de rotas](navegacao-editor.md).
-> Canal estável preservado na [main +106](base-main-v106.md). PC1 é o teste oficial;
+> Etapa atual: reestruturação v5 ([V5.md](V5.md)); radar e rotas removidos.
+> Canal estável: tag `estavel-138`. PC1 é o teste oficial;
 > ELISMAR-NOTE participa como teste adicional autorizado para FirstHand e YouSee.
 
 | Fase | Situação | Critério de pronto |
@@ -9,7 +9,7 @@
 | F0 Leitura do legado e dados reais | Fontes e evidências locais disponíveis; golden integral ainda pendente | Golden com as 48 linhas de PK e 424 de joia |
 | F1 Workspace, protocolo, regras puras | Implementados; validação atual na documentação da navegação | Testes de regras, compatibilidade e regressão aprovados |
 | F2 fake-client + agente (título, TCP, OCR, RAM) | Compilado e em uso nos cinco PCs; leitura real e automações testadas | Preservar leitores existentes e diagnosticar leitura desconhecida sem agir às cegas |
-| F3 Central + SQLite + painel + replay | Central/painel em uso; radar, editor e histórico de rotas implementados; replay integral pendente | Persistência, isolamento, primeira exibição e atualização sem perda de edição |
+| F3 Central + SQLite + painel + replay | Central/painel em uso; replay integral pendente | Persistência, isolamento, primeira exibição e atualização sem perda de edição |
 | F4 Atualização assinada, canais, rollback, TLS, login | Ed25519, pareamento, canais e rollback em uso; TLS/login de usuário ainda pendentes | Preservar canal estável, recusar assinatura inválida e downgrade |
 | F5 Notificações, Saúde, PK, carga/caos/24 h | Parcial: ntfy/Telegram, aba Saúde e PK escritos | CPU média < 1% em 24 h |
 | F6 Joias | Desligada (decisão 0004) | Método exato provado com dados reais |

@@ -92,7 +92,6 @@ tr:last-child td{border-bottom:0}tbody tr:hover{background:var(--card2)}td.num{f
 <main id="main"></main>
 <div class="drawer" id="drawer"><div class="dh"><b id="dtitle"></b><button class="sm" onclick="closeDrawer()">Fechar ✕</button></div><div class="db" id="dbody"></div></div>
 <div class="toast" id="toast"></div>
-<script src="/navigation.js"></script>
 <script>
 "use strict";
 // ---------------------------------------------------------------- estado
@@ -101,7 +100,6 @@ const TABS = [
   ["dash", "◉", "Dashboard"], ["chars", "☰", "Personagens"], ["maps", "⌖", "Mapas"],
   ["remote", "▣", "Controle remoto"], ["alerts", "⚑", "Alertas"], ["pcs", "▤", "Computadores"], ["cfg", "⚙", "Configurações"],
 ];
-TABS.splice(3,0,["navigation", "↗", "Radar e rotas"]);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmt = n => n == null ? "—" : Number(n).toLocaleString("pt-BR");
@@ -239,13 +237,6 @@ let busyUntil = 0;
 document.addEventListener("pointerdown", e => { if (e.target.closest("main select, main input, .drawer")) busyUntil = Date.now() + 4000; else if (e.target.closest("main button")) busyUntil = Date.now() + 1500; }, true);
 function render(force, fromState = false) {
   if (!S) return false;
-  if (tab === "navigation") {
-    renderNav();
-    if ($("main").dataset.navigation === "mounted") window.ZenNavigation.update(S);
-    else { $("main").dataset.navigation="mounted"; window.ZenNavigation.mount($("main"),S); }
-    return true;
-  }
-  delete $("main").dataset.navigation;
   const firstPaint = !$("main").innerHTML.trim();
   force = force || catalogRefreshPending;
   // Uma atualização de catálogo não deve apagar uma edição ainda em foco.

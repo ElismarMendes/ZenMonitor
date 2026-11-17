@@ -8,8 +8,6 @@ mod notify;
 mod ozt;
 mod tokens;
 mod update;
-mod navigation;
-mod routes;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, Path, State};
@@ -33,9 +31,6 @@ const INDEX_HTML: &str = include_str!("../web/index.html");
 const V4_HTML: &str = include_str!("../web/v4.html");
 
 struct App {
-    navigation: Mutex<navigation::NavigationState>,
-    route_write: Mutex<()>,
-    route_planners: Arc<tokio::sync::Semaphore>,
     cfg: config::CentralConfig,
     hub: Mutex<hub::Hub>,
     spot_book: Mutex<zen_core::spots::Directory>,
@@ -120,9 +115,6 @@ fn build_app(cfg: config::CentralConfig, pool: sqlx::SqlitePool) -> anyhow::Resu
     };
     let (panel_tx, _) = broadcast::channel(16);
     Ok(Arc::new(App {
-        navigation: Mutex::new(Default::default()),
-        route_write: Mutex::new(()),
-        route_planners: Arc::new(tokio::sync::Semaphore::new(2)),
         hub: Mutex::new(hub::Hub::new(alert_cfg)),
         spot_book: Mutex::new(load_spot_book()?),
         pool,
@@ -166,9 +158,6 @@ async fn broadcast_spots(app: &Shared) {
 
 fn router(app: Shared) -> Router {
     Router::new()
-        .merge(routes::router())
-        .merge(navigation::router())
-        .route("/navigation.js", get(|| async { ([(header::CONTENT_TYPE,"application/javascript; charset=utf-8")],include_str!("../web/navigation.js")) }))
         // Painel antigo descontinuado (dono, 12/11): "/" abre o painel novo.
         .route("/", get(|| async { Html(V4_HTML) }))
         .route("/antigo", get(|| async { Html(INDEX_HTML) }))
@@ -285,7 +274,6 @@ async fn agent_session(socket: WebSocket, app: Shared, machine: String, new_toke
                             break;
                         }
                         said_hello = true;
-                        app.navigation.lock().await.clear(&machine);
                         {
                             let mut hub=app.hub.lock().await;
                             hub.on_hello(&machine, &agent_version, &channel);
@@ -299,25 +287,9 @@ async fn agent_session(socket: WebSocket, app: Shared, machine: String, new_toke
                             let _ = tx.send(Message::Text(serde_json::to_string(&m).unwrap_or_default().into())).await;
                         }
                         tracing::info!(%machine, %agent_version, "agente conectado");
-                        if protocol>=3 {
-                            if let Ok(ids)=sqlx::query_scalar::<_,String>("SELECT id FROM route_revisions r WHERE deleted=0 AND revision=(SELECT MAX(revision) FROM route_revisions WHERE id=r.id)").fetch_all(&app.pool).await {
-                                let _=cmd_tx.send(CentralMsg::Command{id:0,command:Command::SyncRoutes{active_ids:ids}});
-                            }
-                        }
                     }
                     _ if !said_hello => { tracing::warn!(%machine, "mensagem antes do hello"); break; }
                     AgentMsg::Pair { .. } => { tracing::warn!(%machine, "pareamento pela rota errada"); break; }
-                    AgentMsg::NavigationSnapshot { snapshot } => {
-                        let active=app.links.lock().await.get(&machine).is_some_and(|l|l.same_channel(&cmd_tx));
-                        if active && app.hub.lock().await.machines.get(&machine).is_some_and(|m|m.protocol>=3) {
-                            app.navigation.lock().await.observe(&machine,snapshot);
-                        }
-                    }
-                    AgentMsg::RouteResult { id, ok, message } => {
-                        let _=sqlx::query("UPDATE route_runs SET status=?,message=?,finished_at=? WHERE command_id=? AND machine=?")
-                            .bind(if ok {"concluída"} else {"falhou"}).bind(&message).bind(now() as i64).bind(id as i64).bind(&machine).execute(&app.pool).await;
-                        push_result(&app,json!({"id":id,"machine":machine,"ok":ok,"message":message,"ts":now(),"route_final":true})).await;
-                    }
                     AgentMsg::SpotLease { request_id, char_name, spot, release } => {
                         let mut book = app.spot_book.lock().await;
                         let before = book.clone();
@@ -428,8 +400,6 @@ async fn agent_session(socket: WebSocket, app: Shared, machine: String, new_toke
         mine
     };
     if was_active {
-        app.navigation.lock().await.clear(&machine);
-        let _=sqlx::query("UPDATE route_runs SET status='interrompida',message='agente desconectado; chegada não confirmada',finished_at=? WHERE machine=? AND status='enviada'").bind(now() as i64).bind(&machine).execute(&app.pool).await;
     }
     if removed {
         app.hub.lock().await.forget_machine(&machine);
@@ -590,8 +560,6 @@ async fn build_state(app: &Shared) -> Value {
     };
     let spot_directory=app.spot_book.lock().await.clone();
     json!({
-        "radar": app.navigation.lock().await.panel(),
-        "navigation_execution":app.cfg.navigation_execution,
         "spot_catalog": spot_directory.catalog.iter().map(|c|json!({"id":c.spot.id(),"world":c.spot.world,"x":c.spot.x,"y":c.spot.y,"priority":c.priority})).collect::<Vec<_>>(),
         "spot_directory": spot_directory,
         "now": t,
@@ -654,17 +622,6 @@ struct CommandReq {
 async fn api_command(State(app): State<Shared>, headers: HeaderMap, Json(req): Json<CommandReq>) -> Response {
     if !config::ct_eq(bearer(&headers).as_bytes(), app.cfg.admin_token.as_bytes()) {
         return (StatusCode::UNAUTHORIZED, "token de admin inválido").into_response();
-    }
-    if matches!(req.command,Command::RunRoute{..}|Command::RevokeRoute{..}|Command::SyncRoutes{..}) {
-        return (StatusCode::BAD_REQUEST,"use a prévia e a confirmação explícita do editor de rotas").into_response();
-    }
-    if matches!(req.command,Command::SetConfig{navigation_enabled:Some(true),..})
-        && (!app.cfg.navigation_execution || !app.cfg.test_machines.contains(&req.machine)) {
-        return (StatusCode::BAD_REQUEST,"navegação experimental disponível somente no canal de teste habilitado").into_response();
-    }
-    if matches!(req.command,Command::SetConfig{navigation_enabled:Some(true),..})
-        && !app.hub.lock().await.machines.get(&req.machine).is_some_and(|m|m.protocol>=3) {
-        return (StatusCode::BAD_REQUEST,"atualize o agente antes de habilitar a navegação experimental").into_response();
     }
     let id = {
         let mut n = app.next_cmd.lock().await;
@@ -1083,34 +1040,6 @@ mod e2e {
     use tokio_tungstenite::tungstenite::Message as TMsg;
     use zen_core::protocol::{CharReport, Health, ZenSource};
     use zen_core::title::TitleInfo;
-
-    #[tokio::test]
-    async fn navigation_opt_in_requires_enabled_test_channel_and_compatible_agent() {
-        let mut cfg=config::CentralConfig::default();
-        cfg.admin_token="opt-in-test".into();
-        cfg.navigation_execution=true;
-        cfg.test_machines=vec!["PC1".into()];
-        let app=build_app(cfg,db::open(":memory:").await.unwrap()).unwrap();
-        let mut headers=HeaderMap::new();
-        headers.insert("authorization","Bearer opt-in-test".parse().unwrap());
-        let req=|machine:&str,enabled:bool|CommandReq{machine:machine.into(),command:Command::SetConfig{
-            stopped_after_s:None,chat_enabled:None,automation_enabled:None,navigation_enabled:Some(enabled)}};
-        assert_eq!(api_command(State(app.clone()),headers.clone(),Json(req("OTHER",true))).await.status(),StatusCode::BAD_REQUEST);
-        assert_eq!(api_command(State(app.clone()),headers.clone(),Json(req("PC1",true))).await.status(),StatusCode::BAD_REQUEST);
-        app.hub.lock().await.on_hello("PC1","test","teste");
-        app.hub.lock().await.machines.get_mut("PC1").unwrap().protocol=3;
-        let(tx,mut rx)=tokio::sync::mpsc::unbounded_channel();
-        app.links.lock().await.insert("PC1".into(),tx);
-        assert_eq!(api_command(State(app.clone()),headers.clone(),Json(req("PC1",true))).await.status(),StatusCode::ACCEPTED);
-        assert!(matches!(rx.try_recv().unwrap(),CentralMsg::Command{command:Command::SetConfig{navigation_enabled:Some(true),automation_enabled:None,..},..}));
-        let mut disabled_cfg=app.cfg.clone();
-        disabled_cfg.navigation_execution=false;
-        let disabled=build_app(disabled_cfg,db::open(":memory:").await.unwrap()).unwrap();
-        assert_eq!(api_command(State(disabled.clone()),headers.clone(),Json(req("PC1",true))).await.status(),StatusCode::BAD_REQUEST);
-        // Disabling remains available even after the rollout gate was closed.
-        disabled.links.lock().await.insert("PC1".into(),app.links.lock().await.get("PC1").unwrap().clone());
-        assert_eq!(api_command(State(disabled),headers,Json(req("PC1",false))).await.status(),StatusCode::ACCEPTED);
-    }
 
     #[test]
     fn comandos_de_automacao_do_painel_sao_entendidos() {

@@ -2,7 +2,7 @@
 //! usam as mesmas funções de Windows daqui.
 
 pub mod spot_service;
-pub mod navigation;
+
 pub mod config;
 pub mod image;
 pub mod monitor;

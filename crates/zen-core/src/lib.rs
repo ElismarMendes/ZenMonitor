@@ -5,9 +5,6 @@
 //! e garante que agente e central decidem igual.
 
 pub mod spots;
-pub mod routes;
-pub mod navigation;
-pub mod npc_tracker;
 pub mod ks;
 pub mod actions;
 pub mod alerts;
