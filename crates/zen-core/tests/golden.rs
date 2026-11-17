@@ -20,7 +20,8 @@ fn run(input: &Path) {
         std::fs::write(&exp, &out).unwrap();
         return;
     }
-    let want = std::fs::read_to_string(&exp).unwrap();
+    // O checkout no Windows pode trazer CRLF; a comparação é por conteúdo, não por fim de linha.
+    let want = std::fs::read_to_string(&exp).unwrap().replace("\r\n", "\n");
     assert_eq!(out, want, "saída mudou para {}", input.display());
 }
 
