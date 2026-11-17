@@ -26,7 +26,6 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 use zen_core::alerts::AlertConfig;
 use zen_core::protocol::{version_accepted, AgentMsg, CentralMsg, Command, PanelChar, PROTOCOL_VERSION};
 
-const INDEX_HTML: &str = include_str!("../web/index.html");
 /// Painel novo (v4, Etapa 2). Fica em /v4 ao lado do antigo até ser aprovado.
 const V4_HTML: &str = include_str!("../web/v4.html");
 
@@ -160,7 +159,6 @@ fn router(app: Shared) -> Router {
     Router::new()
         // Painel antigo descontinuado (dono, 12/11): "/" abre o painel novo.
         .route("/", get(|| async { Html(V4_HTML) }))
-        .route("/antigo", get(|| async { Html(INDEX_HTML) }))
         .route("/api/panels", get(api_panels))
         .route("/v4", get(|| async { Html(V4_HTML) }))
         .route("/ws/agent", get(ws_agent))

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ZenMonitor v4</title>
+<title>ZenMonitor v5</title>
 <style>
 :root{--bg:#0b0f14;--bg2:#10161e;--card:#141c26;--card2:#18222e;--line:#223042;--line2:#2c3d52;
 --tx:#e6edf3;--tx2:#9fb0c2;--mute:#6b7d90;--acc:#3b9eff;--acc2:#1f6fd1;--ok:#2fd27a;--warn:#f5b73b;--bad:#f2546a;--info:#8f7bff;
@@ -83,7 +83,7 @@ tr:last-child td{border-bottom:0}tbody tr:hover{background:var(--card2)}td.num{f
 </head>
 <body>
 <header>
-  <div class="brand">Zen<span>Monitor</span> <span style="color:var(--mute);font-weight:400;font-size:12px">v4 · prévia</span></div>
+  <div class="brand">Zen<span>Monitor</span> <span style="color:var(--mute);font-weight:400;font-size:12px">v5</span></div>
   <div class="conn"><i class="dot" id="live"></i><span id="livet">conectando…</span></div>
   <div class="hgrow"></div>
   <input id="tok" type="password" placeholder="token de admin" style="width:200px" title="Necessário para comandos. Fica só nesta aba do navegador.">
@@ -229,25 +229,62 @@ function renderNav() {
   if (renderedNavTab === tab) return;
   renderedNavTab = tab;
   $("nav").innerHTML = TABS.map(([k, ic, l], i) => (i === 3 ? '<div class="sep"></div>' : "") + `<a class="${tab === k ? "on" : ""}" data-t="${k}"><span class="ic">${ic}</span>${l}</a>`).join("")
-    + `<div class="foot">Base estável guardada:<br>versoes\\base-v28-2026-11-10</div>`;
+    + `<div class="foot" id="navfoot"></div>`;
   $("nav").querySelectorAll("a").forEach(a => a.onclick = () => { tab = a.dataset.t; location.hash = tab; render(); });
 }
 const VIEWS = {};
 let busyUntil = 0;
 document.addEventListener("pointerdown", e => { if (e.target.closest("main select, main input, .drawer")) busyUntil = Date.now() + 4000; else if (e.target.closest("main button")) busyUntil = Date.now() + 1500; }, true);
+// ---------------------------------------------------------------- atualização incremental (v5)
+// Aplica o HTML novo sobre o DOM existente mudando só o que mudou: o nó sob o mouse, o foco,
+// a rolagem e a imagem carregada continuam os mesmos. Antes (v4) a tela inteira era refeita a
+// cada estado, e por isso as atualizações paravam com o mouse em cima de um botão.
+const MORPH = !/[?&]morph=0/.test(location.search); // ?morph=0 volta ao redesenho completo da v4
+function morph(root, html) {
+  if (!MORPH) { root.innerHTML = html; return; }
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  morphChildren(root, tpl.content);
+}
+function morphChildren(a, b) {
+  const an = [...a.childNodes], bn = [...b.childNodes];
+  for (let i = 0; i < bn.length; i++) {
+    const x = an[i], y = bn[i];
+    if (!x) { a.appendChild(y.cloneNode(true)); continue; }
+    if (x.nodeType !== y.nodeType || x.nodeName !== y.nodeName || (x.id || "") !== (y.id || "")) { a.replaceChild(y.cloneNode(true), x); continue; }
+    if (x.nodeType === 3 || x.nodeType === 8) { if (x.nodeValue !== y.nodeValue) x.nodeValue = y.nodeValue; continue; }
+    if (x.nodeType !== 1) continue;
+    morphAttrs(x, y);
+    if (x.nodeName === "TEXTAREA") { if (x !== document.activeElement && x.value !== y.value) x.value = y.value; continue; }
+    morphChildren(x, y);
+  }
+  for (let i = an.length - 1; i >= bn.length; i--) if (an[i].parentNode === a) a.removeChild(an[i]);
+}
+function morphAttrs(x, y) {
+  for (const at of [...x.attributes]) if (!y.hasAttribute(at.name)) x.removeAttribute(at.name);
+  for (const at of [...y.attributes]) if (x.getAttribute(at.name) !== at.value) x.setAttribute(at.name, at.value);
+  if (x === document.activeElement) return; // nunca mexe no que a pessoa está editando
+  if (x.nodeName === "INPUT") {
+    if (x.type === "checkbox" || x.type === "radio") x.checked = y.hasAttribute("checked");
+    else if (x.value !== (y.getAttribute("value") ?? "")) x.value = y.getAttribute("value") ?? "";
+  } else if (x.nodeName === "OPTION") x.selected = y.hasAttribute("selected");
+}
 function render(force, fromState = false) {
   if (!S) return false;
+  const foot = $("navfoot");
+  if (foot) foot.textContent = `Estável: +${S.update?.seq ?? "?"}` + (S.update_test ? ` · teste: +${S.update_test.seq}` : "");
   const firstPaint = !$("main").innerHTML.trim();
   force = force || catalogRefreshPending;
   // Uma atualização de catálogo não deve apagar uma edição ainda em foco.
   if (!firstPaint && fromState && document.hasFocus() && document.activeElement?.matches("input, select, textarea, [contenteditable=true]") && document.activeElement.closest("main, .drawer")) return false;
   if (!firstPaint && (fromState || !force) && Date.now() < busyUntil) return false;
-  // Não redesenha embaixo do mouse: botões rápidos e log (senão o clique ou a rolagem se perdem).
-  if (!firstPaint && (fromState || !force) && document.querySelector("main .qa:hover, main .logbox:hover, main button:hover")) return false;
+  // v5: com a atualização incremental o nó sob o mouse não é recriado; só segura enquanto um
+  // botão está pressionado (o clique é concluído no mesmo nó).
+  if (!firstPaint && fromState && document.querySelector("main button:active")) return false;
   renderNav();
   const y = $("main").scrollTop;
   const scrolls = ["map-side", "logbox"].map(id=>[id,$(id)?.scrollTop]);
-  $("main").innerHTML = VIEWS[tab]();
+  if (firstPaint || force) $("main").innerHTML = VIEWS[tab](); else morph($("main"), VIEWS[tab]());
   $("main").scrollTop = y;
   (VIEWS[tab + "_after"] || (() => {}))();
   for (const [id,top] of scrolls) if(top!=null && $(id)) $(id).scrollTop=top;
@@ -384,7 +421,7 @@ function renderDrawer() {
   const tog = (on, c2, label) => `<div class="sw"><span>${label}</span><button class="tg ${on ? "on" : ""}" onclick="${c2}"></button></div>`;
   const set = (cmdName, en) => `cmd('${esc(M)}',{cmd:'${cmdName}',char_name:'${esc(N)}',${cmdName === "set_spot_lock" ? "locked" : "enabled"}:${en}})`;
   const drawerScroll = $("dbody").scrollTop;
-  $("dbody").innerHTML = `${situationHtml(c)}<div class="note">F1 salva e fixa o retorno, incluindo no catálogo. F2 apenas cadastra a posição atual no catálogo do mapa.</div><div class="kv">
+  morph($("dbody"), `${situationHtml(c)}<div class="note">F1 salva e fixa o retorno, incluindo no catálogo. F2 apenas cadastra a posição atual no catálogo do mapa.</div><div class="kv">
     <span>Computador</span><span>${esc(M)}</span><span>Nível / resets</span><span>${c.level ?? "—"} / ${c.resets ?? "—"}</span>
     <span>Mapa</span><span>${mapOf(c)} ${c.pos ? `(${c.pos.join(", ")})` : ""}</span><span>Spot</span><span>${c.spot ? c.spot.join(", ") : "não salvo"} ${c.spot_locked ? "🔒" : ""}</span>
     <span>Zen</span><span>${fmt(c.zen)}</span><span>Zen por hora</span><span>${fmt(Math.round(c.zen_per_hour || 0))}</span>
@@ -411,7 +448,7 @@ function renderDrawer() {
         <option value="0" ${!c.skill_key ? "selected" : ""}>nenhuma (usa o helper)</option>
         ${[1,2,3,4,5,6,7,8,9].map(k => `<option value="${k}" ${c.skill_key === k ? "selected" : ""}>tecla ${k}</option>`).join("")}
       </select><div class="s">Travou no meio dos mobs andando: aperta a tecla e segura o botão direito em cima do char (~2,5 s). Use a tecla da skill de área (ex.: Ice Storm).</div></div>`}
-    <img class="shot" id="shot" ${shotUrl[drawerChar] ? `src="${shotUrl[drawerChar]}"` : 'style="display:none"'}>`;
+    <img class="shot" id="shot" ${shotUrl[drawerChar] ? `src="${shotUrl[drawerChar]}"` : 'style="display:none"'}>`);
   $("dbody").scrollTop = drawerScroll;
 }
 async function shot(m, n) {

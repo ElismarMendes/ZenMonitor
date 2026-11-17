@@ -21,32 +21,32 @@ use spots::*;
 use comandos::*;
 
 
-pub(super) const CHAT_EVERY: Duration = Duration::from_secs(60);
+const CHAT_EVERY: Duration = Duration::from_secs(60);
 
 /// Hora local aproximada (fuso fixo do Brasil, UTC-3) para mensagens curtas do painel.
-pub(super) fn chrono_hhmm(ts: u64) -> String {
+fn chrono_hhmm(ts: u64) -> String {
     let t = ts.saturating_sub(3 * 3600) % 86400;
     format!("{:02}:{:02}", t / 3600, (t % 3600) / 60)
 }
 
-pub(super) fn spot_has_issue(o: &zen_core::recovery::Observation, spot: (i32, i32), c: &zen_core::recovery::RecoveryConfig) -> bool {
+fn spot_has_issue(o: &zen_core::recovery::Observation, spot: (i32, i32), c: &zen_core::recovery::RecoveryConfig) -> bool {
     zen_core::recovery::RecoveryMachine::situation(o, Some(spot), c).is_some()
 }
 
-pub(super) fn recovery_can_take_priority(cfg: &AgentConfig, rec: &Recovery, name: &str) -> bool {
+fn recovery_can_take_priority(cfg: &AgentConfig, rec: &Recovery, name: &str) -> bool {
     cfg.recovery_enabled && !cfg.no_automation.iter().any(|n| n == name)
         && !rec.hold.contains_key(name) && !rec.pending.contains(name)
         && !rec.machines.get(name).is_some_and(|m| m.gave_up)
 }
 
-pub(super) fn now() -> u64 {
+fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
 
-pub(super) fn log_dir() -> std::path::PathBuf {
+fn log_dir() -> std::path::PathBuf {
     AgentConfig::path().with_file_name("logs")
 }
 
@@ -101,7 +101,7 @@ pub fn main() -> anyhow::Result<()> {
     }
 }
 
-pub(super) fn already_running() -> bool {
+fn already_running() -> bool {
     use windows::core::w;
     use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows::Win32::System::Threading::CreateMutexW;
@@ -114,7 +114,7 @@ pub(super) fn already_running() -> bool {
     }
 }
 
-pub(super) fn message(text: &str) {
+fn message(text: &str) {
     use windows::core::{w, PCWSTR};
     use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING, MB_OK};
     let t: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
