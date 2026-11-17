@@ -293,8 +293,14 @@ function Do-Publish([switch]$Teste) {
         cargo build --release -p zen-agent --target-dir $t
         if ($LASTEXITCODE -ne 0) { Bad "compilação falhou"; exit 1 }
     } finally { Pop-Location }
-    if ($Teste) { & (Join-Path $Bin "zen-central.exe") publicar-agente (Join-Path $t "release\zen-agent.exe") --teste }
-    else { & (Join-Path $Bin "zen-central.exe") publicar-agente (Join-Path $t "release\zen-agent.exe") }
+    # v5: publica pela central QUE ESTÁ RODANDO (é ela que serve as atualizações). Antes usava a
+    # central da pasta de onde o zen.cmd foi chamado, e uma publicação feita em outra pasta
+    # ia para um lugar que nenhuma central lê (17/11).
+    $central = (Get-Process zen-central -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1).Path
+    if (-not $central) { $central = Join-Path $Bin "zen-central.exe"; Info "central não está rodando (ou sem permissão para ver); usando $central" }
+    else { Info "publicando pela central em uso: $central" }
+    if ($Teste) { & $central publicar-agente (Join-Path $t "release\zen-agent.exe") --teste }
+    else { & $central publicar-agente (Join-Path $t "release\zen-agent.exe") }
     if ($LASTEXITCODE -ne 0) { Bad "publicação falhou"; exit 1 }
     Ok "publicado"
 }
