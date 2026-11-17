@@ -48,6 +48,9 @@ pub struct AgentConfig {
     pub ram_paused: bool,
     /// Leitura do chat por varredura. DESLIGADO por padrão: ver docs/decisoes/0005.
     pub chat_enabled: bool,
+    /// Avisos amarelos do servidor (fila fixa na memória, leitura de 4,5 KB por ciclo).
+    /// Vão para a central, que grava e avisa no celular as invasões. Ligado por padrão.
+    pub server_notices: bool,
     /// AUTOMAÇÃO DE TECLADO/MOUSE (SendInput, janela em foco). Desligada por padrão.
     /// Liga só ações da lista fechada; ver docs/decisoes/0011. Painel: botão por PC.
     pub automation_enabled: bool,
@@ -141,6 +144,7 @@ impl Default for AgentConfig {
             allowed_chars: vec![],
             ram_paused: false,
             chat_enabled: false,
+            server_notices: true,
             automation_enabled: false,
             automation_idle_s: 60,
             manual_hold_s: 5,

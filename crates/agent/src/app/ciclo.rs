@@ -134,6 +134,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
     }
     let mut last_locks = String::new();
     let mut chat = ChatReader::default();
+    let mut notices = zen_agent::win::avisos::NoticeReader::default();
     let mut last_chat = Instant::now() - CHAT_EVERY;
     let mut cpu = health::CpuMeter::new();
     let started = Instant::now();
@@ -888,6 +889,19 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             let pids: Vec<u32> = chars.iter().map(|c| c.pid).collect();
             events = chat.scan(&pids, now());
             last_chat = Instant::now();
+        }
+        // Avisos do servidor: o mesmo texto chega a todos os clientes; lê só um por PC.
+        if cfg.server_notices && !monitor.ram_paused {
+            if let Some(c) = chars.iter().filter(|c| c.title.name.is_some()).min_by_key(|c| c.pid) {
+                for text in notices.poll(c.pid) {
+                    tracing::info!(aviso = %text, "aviso do servidor");
+                    let _ = out_tx.try_send(AgentMsg::ServerNotice {
+                        char_name: c.title.name.clone().unwrap_or_default(),
+                        at: now(),
+                        text,
+                    });
+                }
+            }
         }
         for c in &chars {
             if c.title.name.is_none() {

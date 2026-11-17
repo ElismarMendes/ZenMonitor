@@ -123,7 +123,7 @@ async fn pair(cfg: &NetConfig) -> anyhow::Result<String> {
 
 fn push_bounded(q: &mut VecDeque<AgentMsg>, m: AgentMsg, cap: usize) {
     // Só relatórios e mortes vão para o buffer; respostas de comando antigas não têm valor.
-    if matches!(m, AgentMsg::Report { .. } | AgentMsg::Death { .. }) {
+    if matches!(m, AgentMsg::Report { .. } | AgentMsg::Death { .. } | AgentMsg::ServerNotice { .. }) {
         if q.len() >= cap {
             q.pop_front();
         }

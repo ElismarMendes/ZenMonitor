@@ -5,6 +5,7 @@ pub mod capture;
 pub mod memory;
 pub mod objects;
 pub mod chat;
+pub mod avisos;
 pub mod health;
 pub mod tcp;
 pub mod windows_list;

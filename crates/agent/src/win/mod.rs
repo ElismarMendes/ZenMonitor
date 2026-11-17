@@ -5,7 +5,7 @@ pub mod entrada;
 pub mod nav;
 
 // Caminhos antigos continuam valendo (diag, main e testes usam win::capture, win::input...).
-pub use leitura::{capture, memory, objects, chat, health, tcp, windows_list, ocr, viewport};
+pub use leitura::{capture, memory, objects, chat, avisos, health, tcp, windows_list, ocr, viewport};
 pub use entrada::{input, hotkey};
 
 pub mod spots;
