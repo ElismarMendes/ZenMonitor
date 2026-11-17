@@ -126,9 +126,34 @@ pub fn enable_zen_pick(hwnd: isize, world: u8, status: &dyn Fn(String)) -> Resul
         close_pick(hwnd);
         return Err(format!("Pick: botão Zen não achado ({scrolls} rolagens)"));
     };
-    status(format!("Pick: clicando em Zen ({bx}, {by})"));
-    input::run(hwnd, &[Step::Click { x: bx, y: by }])?;
-    sleep(800);
+    // O botão Zen LIGA E DESLIGA a cada clique, e o jogo avisa no chat: "[PickUp zen] Enabled!"
+    // ou "Disabled!" (dono, 17/11). Antes o bot clicava às cegas e podia DESLIGAR um pick que já
+    // estava ligado. Agora lê o chat na memória antes e depois do clique; "Disabled!" = clica de
+    // novo. Sem aviso legível segue como antes (só registra).
+    let pid = crate::win::capture::window_pid(hwnd);
+    let mut antes: std::collections::HashSet<(u64, String)> =
+        pid.map(|p| crate::win::chat::lines_with(p, PICKUP_ZEN).into_iter().collect()).unwrap_or_default();
+    let mut confirmado = None;
+    for clique in 1..=2 {
+        status(format!("Pick: clicando em Zen ({bx}, {by}){}", if clique > 1 { " de novo (estava desligando)" } else { "" }));
+        input::run(hwnd, &[Step::Click { x: bx, y: by }])?;
+        sleep(800);
+        let Some(pid) = pid else { break };
+        let agora = crate::win::chat::lines_with(pid, PICKUP_ZEN);
+        let novas: Vec<String> = agora.iter().filter(|l| !antes.contains(*l)).map(|(_, t)| t.clone()).collect();
+        antes.extend(agora);
+        confirmado = pickup_zen_state(&novas.iter().map(String::as_str).collect::<Vec<_>>());
+        tracing::info!(clique, avisos = ?novas, estado = ?confirmado, "Pick: aviso do jogo lido na memória");
+        if confirmado != Some(false) {
+            break;
+        }
+        // Desligou: o próximo clique tem de produzir um aviso novo (não o mesmo "Disabled!").
+    }
+    if confirmado == Some(false) {
+        save_error_shot(hwnd, "Pick: Zen continua desligado");
+        close_pick(hwnd);
+        return Err("Pick: o jogo avisou [PickUp zen] Disabled! mesmo depois de clicar de novo".into());
+    }
     if !close_pick(hwnd) {
         save_error_shot(hwnd, "Pick Window não fechou");
         return Err("Pick: Zen clicado, mas a janela não fechou com Y".into());
@@ -137,7 +162,34 @@ pub fn enable_zen_pick(hwnd: isize, world: u8, status: &dyn Fn(String)) -> Resul
     if helper_state(hwnd) == Some(false) {
         set_helper(hwnd, true)?;
     }
-    Ok(format!("Pick Zen ativado em {p:?}{}", if scrolls > 0 { format!(" após {scrolls} rolagem(ns)") } else { String::new() }))
+    let conf = match confirmado { Some(true) => " (confirmado: [PickUp zen] Enabled!)", _ => " (sem aviso do jogo na memória)" };
+    Ok(format!("Pick Zen ativado em {p:?}{}{conf}", if scrolls > 0 { format!(" após {scrolls} rolagem(ns)") } else { String::new() }))
+}
+
+pub(in crate::win::nav) const PICKUP_ZEN: &[u8] = b"[PickUp zen]";
+
+/// Estado pelo(s) aviso(s) NOVO(s) do jogo: só "Enabled" = ligado, só "Disabled" = desligado;
+/// nenhum ou os dois (cliques demais) = não dá para saber.
+pub(in crate::win::nav) fn pickup_zen_state(novas: &[&str]) -> Option<bool> {
+    let on = novas.iter().any(|t| t.to_ascii_lowercase().contains("enabled") && !t.to_ascii_lowercase().contains("disabled"));
+    let off = novas.iter().any(|t| t.to_ascii_lowercase().contains("disabled"));
+    match (on, off) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod pickup_tests {
+    use super::*;
+    #[test]
+    fn aviso_do_jogo_vira_estado() {
+        assert_eq!(pickup_zen_state(&["[PickUp zen] Enabled!"]), Some(true));
+        assert_eq!(pickup_zen_state(&["[PickUp zen] Disabled!"]), Some(false));
+        assert_eq!(pickup_zen_state(&[]), None);
+        assert_eq!(pickup_zen_state(&["[PickUp zen] Disabled!", "[PickUp zen] Enabled!"]), None);
+    }
 }
 
 /// Saiu do mapa do spot (cidade, teleporte, morte): o pick do Zen desligou e precisa de Y de novo.

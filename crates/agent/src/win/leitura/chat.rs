@@ -88,6 +88,12 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 /// Varre a memória inteira (~10 s num cliente): só é chamada quando um char MORRE, para saber
 /// quem matou — nunca no ciclo normal. Ver docs/decisoes/0013.
 pub fn pk_lines(pid: u32) -> Vec<(u64, String)> {
+    lines_with(pid, NEEDLE)
+}
+
+/// Todas as linhas do chat que começam com `needle`, com o endereço. Varre a memória inteira
+/// (vários segundos): só para conferências pontuais (morte, Pick do Zen), nunca no ciclo.
+pub fn lines_with(pid: u32, needle: &[u8]) -> Vec<(u64, String)> {
     let Some(p) = Proc::open(pid) else { return Vec::new() };
     const CHUNK: usize = 1 << 20;
     let mut out = Vec::new();
@@ -99,7 +105,7 @@ pub fn pk_lines(pid: u32) -> Vec<(u64, String)> {
             if p.read(base + off as u64, &mut buf[..n]) {
                 let hay = &buf[..n];
                 let mut i = 0;
-                while let Some(pos) = find(&hay[i..], NEEDLE) {
+                while let Some(pos) = find(&hay[i..], needle) {
                     let s = i + pos;
                     if s >= CHUNK.min(n) {
                         break;
@@ -108,7 +114,7 @@ pub fn pk_lines(pid: u32) -> Vec<(u64, String)> {
                         let txt: String = hay[s..e].iter().map(|&b| b as char).collect();
                         out.push((base + off as u64 + s as u64, txt));
                     }
-                    i = s + NEEDLE.len();
+                    i = s + needle.len();
                 }
             }
             off += CHUNK.min(size - off);
