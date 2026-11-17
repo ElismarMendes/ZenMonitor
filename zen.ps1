@@ -89,14 +89,22 @@ function Do-Build {
         if ($LASTEXITCODE -ne 0) { Bad "testes do agente falharam"; exit 1 }
         Ok "todos os testes passaram"
 
-        # O Windows não deixa substituir um .exe aberto: fecha os módulos antes de compilar.
+        # v5: compila numa pasta de preparo com tudo ainda rodando; os módulos só ficam
+        # fechados durante a cópia dos .exe (segundos, não o tempo da compilação inteira).
+        $staging = Join-Path $PSScriptRoot "target\preparo"
+        Info "Compilando (release) com os módulos ainda rodando..."
+        cargo build --release --target-dir $staging
+        if ($LASTEXITCODE -ne 0) { Bad "compilação falhou; nada foi parado"; exit 1 }
+
+        # O Windows não deixa substituir um .exe aberto: fecha os módulos só agora.
         Info "Fechando os módulos abertos para trocar os executáveis..."
         Do-Stop
         if (Test-Locked) { Bad "ainda há módulo aberto; feche-o (ou rode como administrador) e tente de novo"; exit 1 }
-
-        Info "Compilando (release)..."
-        cargo build --release
-        if ($LASTEXITCODE -ne 0) { Bad "compilação falhou"; exit 1 }
+        $rel = Join-Path $PSScriptRoot "target\release"
+        New-Item -ItemType Directory -Force $rel | Out-Null
+        foreach ($f in @("zen-central.exe", "zen-agent.exe", "zen-diag.exe", "fake-client.exe")) {
+            Copy-Item -Force (Join-Path "$staging\release" $f) $rel
+        }
         $dist = Join-Path $PSScriptRoot "dist"
         New-Item -ItemType Directory -Force $dist | Out-Null
         foreach ($f in @("zen-central.exe", "zen-agent.exe", "zen-diag.exe", "fake-client.exe")) {
