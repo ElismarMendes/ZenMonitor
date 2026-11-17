@@ -91,7 +91,7 @@ pub fn walk(hwnd: isize, t: &Terrain, target: (i32, i32), status: &dyn Fn(String
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum WalkArrival { Exact, Spot, Trainer }
-use zen_core::spots::ARRIVAL_RADIUS as SPOT_ARRIVAL_TOLERANCE;
+pub(super) use zen_core::spots::ARRIVAL_RADIUS as SPOT_ARRIVAL_TOLERANCE;
 
 pub(super) fn walk_with_arrival(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
     let dest = Dest::from_world(t.world).ok_or("mapa do terreno não reconhecido")?;
