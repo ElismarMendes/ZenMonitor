@@ -2278,7 +2278,11 @@ fn main() -> anyhow::Result<()> {
         // endereço e o trecho em volta. Ex.: zen-diag memtexto <pid> nable "Pick Zen"
         "memtexto" => {
             let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
-            let needles: Vec<Vec<u8>> = args.iter().skip(2).map(|a| a.to_ascii_lowercase().into_bytes()).collect();
+            // Cada palavra em texto simples e em UTF-16 (2 bytes por letra), sem diferenciar maiúsculas.
+            let needles: Vec<Vec<u8>> = args.iter().skip(2).flat_map(|a| {
+                let l = a.to_ascii_lowercase();
+                [l.clone().into_bytes(), l.encode_utf16().flat_map(|c| c.to_le_bytes()).collect::<Vec<u8>>()]
+            }).collect();
             let t = std::time::Instant::now();
             const CHUNK: usize = 1 << 20;
             let mut buf = vec![0u8; CHUNK + 256];
@@ -2296,7 +2300,9 @@ fn main() -> anyhow::Result<()> {
                                 if s0 >= CHUNK.min(n) { break; }
                                 let ini = s0.saturating_sub(48);
                                 let fim = (s0 + 80).min(n);
-                                let txt: String = buf[ini..fim].iter().map(|&b| if (32..127).contains(&b) { b as char } else { '.' }).collect();
+                                let utf16 = nd.len() > 1 && nd[1] == 0;
+                                let txt: String = buf[ini..fim].iter().filter(|&&b| !(utf16 && b == 0)).map(|&b| if (32..127).contains(&b) { b as char } else { '.' }).collect();
+                                let txt = if utf16 { format!("[utf16] {txt}") } else { txt };
                                 hits.push((base + off as u64 + s0 as u64, txt));
                                 i = s0 + nd.len();
                                 if hits.len() > 600 { break; }
