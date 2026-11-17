@@ -2275,8 +2275,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
         // v5 (17/11): procura textos na memória do jogo (sem diferenciar maiúsculas), com o
-        // endereço e o trecho em volta. Ex.: zen-diag texto <pid> nable "Pick Zen"
-        "texto" => {
+        // endereço e o trecho em volta. Ex.: zen-diag memtexto <pid> nable "Pick Zen"
+        "memtexto" => {
             let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
             let needles: Vec<Vec<u8>> = args.iter().skip(2).map(|a| a.to_ascii_lowercase().into_bytes()).collect();
             let t = std::time::Instant::now();
