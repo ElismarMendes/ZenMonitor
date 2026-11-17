@@ -1,4 +1,4 @@
-use super::*;
+use crate::win::nav::*;
 
 /// Vai até `spot` no mapa `dest` (M se precisar, andando pelo terreno `t`) e liga o helper se
 /// não for zona segura. Base da volta ao spot e do "ir até" do painel.

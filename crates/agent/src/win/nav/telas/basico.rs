@@ -1,25 +1,25 @@
-use super::*;
+use crate::win::nav::*;
 
 
 pub const CORNER: [i32; 4] = [0, 30, 300, 24];
-pub(super) const VK_HOME: u16 = 0x24;
-pub(super) const VK_M: u16 = 0x4D;
+pub(in crate::win::nav) const VK_HOME: u16 = 0x24;
+pub(in crate::win::nav) const VK_M: u16 = 0x4D;
 /// Botão "Kanturu" na janela do M (print de 08/11, cliente 1030x797).
-pub(super) const M_KANTURU: (i32, i32) = (612, 323);
+pub(in crate::win::nav) const M_KANTURU: (i32, i32) = (612, 323);
 /// Centro dos cliques de movimento (o char fica no meio da tela).
-pub(super) const CENTER: (i32, i32) = (515, 400);
+pub(in crate::win::nav) const CENTER: (i32, i32) = (515, 400);
 /// Pasta World do Kanturu 1.
 pub const KANTURU_WORLD: u8 = 38;
 
-pub(super) fn sleep(ms: u64) {
+pub(in crate::win::nav) fn sleep(ms: u64) {
     std::thread::sleep(std::time::Duration::from_millis(ms));
 }
 
-pub(super) fn cheb(a: (i32, i32), b: (i32, i32)) -> i32 {
+pub(in crate::win::nav) fn cheb(a: (i32, i32), b: (i32, i32)) -> i32 {
     (a.0 - b.0).abs().max((a.1 - b.1).abs())
 }
 
-pub(super) fn corner(hwnd: isize) -> Option<Bits> {
+pub(in crate::win::nav) fn corner(hwnd: isize) -> Option<Bits> {
     let img = capture::capture(hwnd, Some(CORNER))?;
     Some(binarize_white(&img.bgra, img.w as usize, img.h as usize, COORDS_WHITE))
 }
@@ -68,7 +68,7 @@ pub fn inventory_open(hwnd: isize) -> bool {
 }
 
 /// OK dos avisos do jogo no meio da tela ("Helper only runs in field", "close Inventory").
-pub(super) const DIALOG_OK: (i32, i32) = (512, 316);
+pub(in crate::win::nav) const DIALOG_OK: (i32, i32) = (512, 316);
 
 /// Liga/desliga o helper só se precisar, e confere pelo ícone. Nunca aperta Home às cegas.
 /// Para LIGAR: o jogo recusa com o inventário aberto (visto em 08/11: "In order to run The
@@ -133,7 +133,7 @@ pub fn set_helper(hwnd: isize, on: bool) -> Result<(), String> {
     }
 }
 
-pub(super) fn settle(hwnd: isize) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn settle(hwnd: isize) -> Option<(i32, i32)> {
     let mut last = None;
     for _ in 0..25 {
         let s = position(hwnd);
@@ -146,7 +146,7 @@ pub(super) fn settle(hwnd: isize) -> Option<(i32, i32)> {
     last
 }
 
-pub(super) fn near(hwnd: isize, prev: (i32, i32)) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn near(hwnd: isize, prev: (i32, i32)) -> Option<(i32, i32)> {
     for _ in 0..4 {
         let s = settle(hwnd)?;
         if cheb(s, prev) <= 10 {
@@ -160,8 +160,8 @@ pub(super) fn near(hwnd: isize, prev: (i32, i32)) -> Option<(i32, i32)> {
 /// M -> botão Kanturu. Espera o nome virar Kanturu e a posição saltar.
 /// Texto "Kanturu" no mapa (M) aberto: igual no cliente em inglês e em português (prints de
 /// 08/11 e 09/11). Fechado, a mesma região difere em 77+ pixels.
-pub(super) const M_LABEL: [i32; 4] = [592, 318, 40, 10];
-pub(super) const M_LABEL_TEXT: &str = "\
+pub(in crate::win::nav) const M_LABEL: [i32; 4] = [592, 318, 40, 10];
+pub(in crate::win::nav) const M_LABEL_TEXT: &str = "\
 ........................................
 ........................................
 ..#...#..............#..................
@@ -180,7 +180,7 @@ pub fn map_open(hwnd: isize) -> bool {
 
 /// Deslocamento do mapa (M) em relação ao medido no PC1: procura o texto "Kanturu" numa área
 /// maior (outro layout de cliente, ex. DESKTOP-KIS9DG7). `None` = mapa fechado.
-pub(super) fn map_shift(hwnd: isize) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn map_shift(hwnd: isize) -> Option<(i32, i32)> {
     let [x, y, w, h] = M_LABEL;
     let (mx, my) = (60, 40);
     let img = capture::capture(hwnd, Some([x - mx, y - my, w + 2 * mx, h + 2 * my]))?;

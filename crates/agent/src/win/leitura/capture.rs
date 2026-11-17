@@ -43,7 +43,7 @@ static CAPTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub fn capture(hwnd: isize, region: Option<[i32; 4]>) -> Option<Image> {
     let _grab = CAPTURE.lock().ok()?;
     let pid = window_pid(hwnd)?;
-    let layout_epoch = super::viewport::epoch();
+    let layout_epoch = crate::win::viewport::epoch();
     let origin = frame_origin(hwnd)?;
     let hwnd = HWND(hwnd as *mut _);
     unsafe {
@@ -138,7 +138,7 @@ pub fn capture(hwnd: isize, region: Option<[i32; 4]>) -> Option<Image> {
             }
             Image { w: nw as u32, h: nh as u32, bgra: out }
         };
-        super::viewport::observe(hwnd.0 as isize,pid,layout_epoch,&img);
+        crate::win::viewport::observe(hwnd.0 as isize,pid,layout_epoch,&img);
         match region {
             Some(r) => img.crop(r),
             None => Some(img),

@@ -1,7 +1,7 @@
 //! OCR nativo do Windows (Windows.Media.Ocr). Dispensa o Tesseract.
 //! Requer um pacote de idioma com OCR instalado (inglês ou português vêm por padrão).
 
-use super::capture::Image;
+use crate::win::capture::Image;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::DataWriter;

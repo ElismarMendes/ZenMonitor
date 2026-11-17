@@ -1,4 +1,4 @@
-use super::*;
+use crate::win::nav::*;
 
 // ---------------------------------------------------------------- Elpis: Gemstone -> Jewel of Harmony (16/11)
 // MaMaKi (PC1) na Refinery Tower, ao lado da Elpis. Visto no jogo em 16/11 20:20:
@@ -11,32 +11,32 @@ use super::*;
 //   ativo e cada clique separa mais uma. Com o painel do Refine aberto o R não vale e o clique
 //   PEGA a pilha inteira (16/11 20:23): por isso só separa com o painel fechado.
 // - O bot não anda: o dono leva o char até a Elpis.
-pub(super) const ELPIS_DLG: &[u8; 90 * 16] = include_bytes!("../elpis_dlg.gray");
-pub(super) const ELPIS_DLG_AT: (i32, i32) = (468, 465);
-pub(super) const ELPIS_READY: &[u8; 86 * 14] = include_bytes!("../elpis_ready.gray");
-pub(super) const ELPIS_READY_AT: (i32, i32) = (138, 103);
-pub(super) const ELPIS_BTN: &[u8; 54 * 44] = include_bytes!("../elpis_btn.gray");
-pub(super) const ELPIS_BTN_AT: (i32, i32) = (238, 638);
-pub(super) const ELPIS_CONFIRM: &[u8; 50 * 21] = include_bytes!("../elpis_confirm.gray");
-pub(super) const ELPIS_CONFIRM_AT: (i32, i32) = (396, 330);
+pub(in crate::win::nav) const ELPIS_DLG: &[u8; 90 * 16] = include_bytes!("../../modelos/elpis_dlg.gray");
+pub(in crate::win::nav) const ELPIS_DLG_AT: (i32, i32) = (468, 465);
+pub(in crate::win::nav) const ELPIS_READY: &[u8; 86 * 14] = include_bytes!("../../modelos/elpis_ready.gray");
+pub(in crate::win::nav) const ELPIS_READY_AT: (i32, i32) = (138, 103);
+pub(in crate::win::nav) const ELPIS_BTN: &[u8; 54 * 44] = include_bytes!("../../modelos/elpis_btn.gray");
+pub(in crate::win::nav) const ELPIS_BTN_AT: (i32, i32) = (238, 638);
+pub(in crate::win::nav) const ELPIS_CONFIRM: &[u8; 50 * 21] = include_bytes!("../../modelos/elpis_confirm.gray");
+pub(in crate::win::nav) const ELPIS_CONFIRM_AT: (i32, i32) = (396, 330);
 #[cfg(test)]
-pub(super) const ELPIS_FAILED: &[u8; 78 * 13] = include_bytes!("../elpis_failed.gray");
+pub(in crate::win::nav) const ELPIS_FAILED: &[u8; 78 * 13] = include_bytes!("../../modelos/elpis_failed.gray");
 /// X do meio da tela do Refine: aparece com o painel ativo ou vazio (depois de um refino).
-pub(super) const ELPIS_PANEL_X: &[u8; 40 * 38] = include_bytes!("../elpis_panel_x.gray");
-pub(super) const ELPIS_PANEL_X_AT: (i32, i32) = (458, 656);
-pub(super) const GEM_SINGLE: &[u8; 32 * 32] = include_bytes!("../gem_single.gray");
+pub(in crate::win::nav) const ELPIS_PANEL_X: &[u8; 40 * 38] = include_bytes!("../../modelos/elpis_panel_x.gray");
+pub(in crate::win::nav) const ELPIS_PANEL_X_AT: (i32, i32) = (458, 656);
+pub(in crate::win::nav) const GEM_SINGLE: &[u8; 32 * 32] = include_bytes!("../../modelos/gem_single.gray");
 /// Caixa do Refine vazia (8x4 casas de 32 px a partir de (140,203)).
-pub(super) const ELPIS_BOX_EMPTY: &[u8; 256 * 128] = include_bytes!("../elpis_box_empty.gray");
-pub(super) const ELPIS_BOX: [i32; 4] = [140, 203, 256, 128];
-pub(super) const ELPIS_REFINE_OPTION: (i32, i32) = (513, 472);
-pub(super) const ELPIS_DIALOG_CLOSE: (i32, i32) = (513, 542);
-pub(super) const ELPIS_REFINE: (i32, i32) = (265, 659);
-pub(super) const ELPIS_OK: (i32, i32) = (421, 340);
-pub(super) const INV_CLOSE: (i32, i32) = (782, 675);
-pub(super) const INV_GRID: [i32; 4] = [748, 347, 260, 260];
-pub(super) const VK_R: u16 = 0x52;
+pub(in crate::win::nav) const ELPIS_BOX_EMPTY: &[u8; 256 * 128] = include_bytes!("../../modelos/elpis_box_empty.gray");
+pub(in crate::win::nav) const ELPIS_BOX: [i32; 4] = [140, 203, 256, 128];
+pub(in crate::win::nav) const ELPIS_REFINE_OPTION: (i32, i32) = (513, 472);
+pub(in crate::win::nav) const ELPIS_DIALOG_CLOSE: (i32, i32) = (513, 542);
+pub(in crate::win::nav) const ELPIS_REFINE: (i32, i32) = (265, 659);
+pub(in crate::win::nav) const ELPIS_OK: (i32, i32) = (421, 340);
+pub(in crate::win::nav) const INV_CLOSE: (i32, i32) = (782, 675);
+pub(in crate::win::nav) const INV_GRID: [i32; 4] = [748, 347, 260, 260];
+pub(in crate::win::nav) const VK_R: u16 = 0x52;
 
-pub(super) fn fixed_at(hwnd: isize, t: &[u8], w: usize, h: usize, at: (i32, i32)) -> bool {
+pub(in crate::win::nav) fn fixed_at(hwnd: isize, t: &[u8], w: usize, h: usize, at: (i32, i32)) -> bool {
     let m = 4;
     capture::capture(hwnd, Some([at.0 - m, at.1 - m, w as i32 + 2 * m, h as i32 + 2 * m]))
         .is_some_and(|img| gray_match(&img, t, w, h, 8).is_some())
@@ -45,7 +45,7 @@ pub(super) fn fixed_at(hwnd: isize, t: &[u8], w: usize, h: usize, at: (i32, i32)
 /// (erro médio <= 30) e quase nenhum pixel escuro do modelo (< 50) pode estar claro (> 110).
 /// Serve para janelas semitransparentes do jogo, em que o cenário atrás muda o fundo.
 #[allow(dead_code)]
-pub(super) fn mask_match(img: &capture::Image, t: &[u8], w: usize, h: usize) -> bool {
+pub(in crate::win::nav) fn mask_match(img: &capture::Image, t: &[u8], w: usize, h: usize) -> bool {
     let (iw, ih) = (img.w as usize, img.h as usize);
     if iw < w || ih < h { return false; }
     let lit = t.iter().filter(|&&v| v >= 120).count();
@@ -68,7 +68,7 @@ pub(super) fn mask_match(img: &capture::Image, t: &[u8], w: usize, h: usize) -> 
     }
     false
 }
-pub(super) fn wait_fixed(hwnd: isize, t: &[u8], w: usize, h: usize, at: (i32, i32), ms: u128) -> bool {
+pub(in crate::win::nav) fn wait_fixed(hwnd: isize, t: &[u8], w: usize, h: usize, at: (i32, i32), ms: u128) -> bool {
     let t0 = std::time::Instant::now();
     loop {
         if fixed_at(hwnd, t, w, h, at) { return true; }
@@ -79,13 +79,13 @@ pub(super) fn wait_fixed(hwnd: isize, t: &[u8], w: usize, h: usize, at: (i32, i3
 /// Na Refinery Tower a câmera não centraliza o char como nos outros mapas: medido em 16/11 com a
 /// Elpis em (78,176) e o char em (75,176) (corpo em ~(535,420), o clique abriu) e em (81,176)
 /// (corpo em ~(220,250)): char em ~(377,340) e o modelo dos outros mapas encolhido a 0,82.
-pub(super) fn elpis_click_px(at: (i32, i32), npc: (i32, i32)) -> (i32, i32) {
+pub(in crate::win::nav) fn elpis_click_px(at: (i32, i32), npc: (i32, i32)) -> (i32, i32) {
     let (x, y) = npc_px(at, (npc.0 as f64, npc.1 as f64));
     (377 + ((x - CENTER.0) as f64 * 0.82).round() as i32, 340 + ((y - CENTER.1) as f64 * 0.82).round() as i32)
 }
-pub(super) fn elpis_dialog(hwnd: isize) -> bool { fixed_at(hwnd, ELPIS_DLG, 90, 16, ELPIS_DLG_AT) }
+pub(in crate::win::nav) fn elpis_dialog(hwnd: isize) -> bool { fixed_at(hwnd, ELPIS_DLG, 90, 16, ELPIS_DLG_AT) }
 /// Casas ocupadas da caixa do Refine (recorte de `ELPIS_BOX`): centro na janela.
-pub(super) fn box_items_in(img: &capture::Image) -> Vec<(i32, i32)> {
+pub(in crate::win::nav) fn box_items_in(img: &capture::Image) -> Vec<(i32, i32)> {
     let w = img.w as usize;
     let mut out = Vec::new();
     for r in 0..4usize {
@@ -107,11 +107,11 @@ pub(super) fn box_items_in(img: &capture::Image) -> Vec<(i32, i32)> {
     }
     out
 }
-pub(super) fn box_items(hwnd: isize) -> Option<Vec<(i32, i32)>> { capture::capture(hwnd, Some(ELPIS_BOX)).map(|img| box_items_in(&img)) }
+pub(in crate::win::nav) fn box_items(hwnd: isize) -> Option<Vec<(i32, i32)>> { capture::capture(hwnd, Some(ELPIS_BOX)).map(|img| box_items_in(&img)) }
 
 /// Gemstones no inventário (recorte de `INV_GRID`): (centro na janela, avulsa?). Pilha e avulsa
 /// têm o mesmo desenho embaixo; a pilha tem o número em cima.
-pub(super) fn gems_in(img: &capture::Image) -> Vec<((i32, i32), bool)> {
+pub(in crate::win::nav) fn gems_in(img: &capture::Image) -> Vec<((i32, i32), bool)> {
     let w = img.w as usize;
     let g = |x: usize, y: usize| -> u32 {
         let i = (y * w + x) * 4;
@@ -137,12 +137,12 @@ pub(super) fn gems_in(img: &capture::Image) -> Vec<((i32, i32), bool)> {
     }
     out
 }
-pub(super) fn gems(hwnd: isize) -> Vec<((i32, i32), bool)> {
+pub(in crate::win::nav) fn gems(hwnd: isize) -> Vec<((i32, i32), bool)> {
     capture::capture(hwnd, Some(INV_GRID)).map(|img| gems_in(&img)).unwrap_or_default()
 }
 
 /// Fecha diálogo da Elpis / painel do Refine / inventário, conferindo na tela.
-pub(super) fn elpis_close_all(hwnd: isize) -> Result<(), String> {
+pub(in crate::win::nav) fn elpis_close_all(hwnd: isize) -> Result<(), String> {
     for _ in 0..3 {
         if elpis_dialog(hwnd) {
             input::run(hwnd, &[Step::Click { x: ELPIS_DIALOG_CLOSE.0, y: ELPIS_DIALOG_CLOSE.1 }])?;
@@ -316,9 +316,9 @@ mod elpis_tests {
     }
     #[test]
     fn acha_pilhas_e_avulsas() {
-        let a = gems_in(&img(include_bytes!("../../../tests/fixtures/elpis/inventario.png")));
+        let a = gems_in(&img(include_bytes!("../../../../tests/fixtures/elpis/inventario.png")));
         assert_eq!(a, vec![((764, 363), false), ((796, 363), false), ((828, 363), true)]);
-        let b = gems_in(&img(include_bytes!("../../../tests/fixtures/elpis/inventario2.png")));
+        let b = gems_in(&img(include_bytes!("../../../../tests/fixtures/elpis/inventario2.png")));
         assert_eq!(b, vec![((764, 363), false), ((796, 363), false), ((860, 363), true)]);
     }
     #[test]
@@ -330,20 +330,20 @@ mod elpis_tests {
     }
     #[test]
     fn acha_item_na_caixa_do_refine() {
-        assert_eq!(box_items_in(&img(include_bytes!("../../../tests/fixtures/elpis/caixa_com.png"))), vec![(156, 219)]);
-        assert!(box_items_in(&img(include_bytes!("../../../tests/fixtures/elpis/caixa_vazia.png"))).is_empty());
+        assert_eq!(box_items_in(&img(include_bytes!("../../../../tests/fixtures/elpis/caixa_com.png"))), vec![(156, 219)]);
+        assert!(box_items_in(&img(include_bytes!("../../../../tests/fixtures/elpis/caixa_vazia.png"))).is_empty());
     }
     #[test]
     fn reconhece_telas_da_elpis() {
         let m = |b: &[u8], t: &[u8], w, h| gray_match(&img(b), t, w, h, 8).is_some();
-        assert!(m(include_bytes!("../../../tests/fixtures/elpis/dlg.png"), ELPIS_DLG, 90, 16));
+        assert!(m(include_bytes!("../../../../tests/fixtures/elpis/dlg.png"), ELPIS_DLG, 90, 16));
         // Diálogo semitransparente com cenário claro atrás (21:50): só o desenho do texto bate.
-        assert!(mask_match(&img(include_bytes!("../../../tests/fixtures/elpis/dlg_cenario.png")), ELPIS_DLG, 90, 16));
-        assert!(!mask_match(&img(include_bytes!("../../../tests/fixtures/elpis/dlg_sem.png")), ELPIS_DLG, 90, 16));
-        assert!(m(include_bytes!("../../../tests/fixtures/elpis/ready.png"), ELPIS_READY, 86, 14));
-        assert!(!m(include_bytes!("../../../tests/fixtures/elpis/notready.png"), ELPIS_READY, 86, 14));
-        assert!(m(include_bytes!("../../../tests/fixtures/elpis/failed.png"), ELPIS_FAILED, 78, 13));
-        assert!(!m(include_bytes!("../../../tests/fixtures/elpis/notfailed.png"), ELPIS_FAILED, 78, 13));
+        assert!(mask_match(&img(include_bytes!("../../../../tests/fixtures/elpis/dlg_cenario.png")), ELPIS_DLG, 90, 16));
+        assert!(!mask_match(&img(include_bytes!("../../../../tests/fixtures/elpis/dlg_sem.png")), ELPIS_DLG, 90, 16));
+        assert!(m(include_bytes!("../../../../tests/fixtures/elpis/ready.png"), ELPIS_READY, 86, 14));
+        assert!(!m(include_bytes!("../../../../tests/fixtures/elpis/notready.png"), ELPIS_READY, 86, 14));
+        assert!(m(include_bytes!("../../../../tests/fixtures/elpis/failed.png"), ELPIS_FAILED, 78, 13));
+        assert!(!m(include_bytes!("../../../../tests/fixtures/elpis/notfailed.png"), ELPIS_FAILED, 78, 13));
     }
 }
 

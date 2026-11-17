@@ -23,7 +23,7 @@ pub enum Hotkey {
     AssignSpot,
 }
 
-static TX: OnceLock<Mutex<Sender<(Hotkey, isize, Option<super::capture::Image>)>>> = OnceLock::new();
+static TX: OnceLock<Mutex<Sender<(Hotkey, isize, Option<crate::win::capture::Image>)>>> = OnceLock::new();
 static HELD: AtomicU32 = AtomicU32::new(0);
 static CLASS: OnceLock<String> = OnceLock::new();
 
@@ -74,7 +74,7 @@ unsafe extern "system" fn proc(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
             if CLASS.get().is_some_and(|c| *c == class) {
                 if let Some(tx) = TX.get().and_then(|m| m.lock().ok()) {
                     // Só a cópia de 300x24 pixels fica no gancho. OCR e disco ficam fora.
-                    let frame = super::capture::visible_region(fg.0 as isize, super::nav::CORNER);
+                    let frame = crate::win::capture::visible_region(fg.0 as isize, crate::win::nav::CORNER);
                     let _ = tx.send((h, fg.0 as isize, frame));
                 }
             }
@@ -85,7 +85,7 @@ unsafe extern "system" fn proc(code: i32, w: WPARAM, l: LPARAM) -> LRESULT {
 }
 
 /// Sobe a thread do gancho. Os atalhos chegam no `Receiver` correspondente.
-pub fn start(window_class: &str, tx: Sender<(Hotkey, isize, Option<super::capture::Image>)>) {
+pub fn start(window_class: &str, tx: Sender<(Hotkey, isize, Option<crate::win::capture::Image>)>) {
     let _ = CLASS.set(window_class.to_string());
     let _ = TX.set(Mutex::new(tx));
     std::thread::spawn(|| unsafe {

@@ -1,9 +1,9 @@
-use super::*;
+use crate::win::nav::*;
 
 /// O ponto `q` da tela cai no Safety Guardian (corpo + baú)? 60 px de raio não bastou: o
 /// ReDMooN (21:19) abriu o baú 12 vezes em 25 s parado em (33,217). A área clicável é alta:
 /// elipse de 80 x 115 px centrada 45 px acima do pé do NPC.
-pub(super) fn on_npc(pos: (i32, i32), q: (i32, i32)) -> bool {
+pub(in crate::win::nav) fn on_npc(pos: (i32, i32), q: (i32, i32)) -> bool {
     let inside = |n: (i32, i32)| {
         let (dx, dy) = ((q.0 - n.0) as f64 / 80.0, (q.1 - (n.1 - 45)) as f64 / 115.0);
         dx * dx + dy * dy < 1.0
@@ -24,12 +24,12 @@ pub(super) fn on_npc(pos: (i32, i32), q: (i32, i32)) -> bool {
 // Toda janela de NPC (Trainer, Chaos Goblin, ...) tem a mesma moldura de cima em x 333..690,
 // y 122..133: igual pixel a pixel entre as janelas e bem diferente com tudo fechado (medido nos
 // prints de 11/11). O YouSee abriu o Chaos Goblin andando até o Trainer e ficou preso.
-pub(super) const NPC_TOP: &[u8; 358 * 12] = include_bytes!("../npc_dialog_top.gray");
+pub(in crate::win::nav) const NPC_TOP: &[u8; 358 * 12] = include_bytes!("../../modelos/npc_dialog_top.gray");
 
 /// "OK" das caixas de aviso de NPC (ex.: Shadow Phantom Soldier em Devias, 11/11 22:37: "You can
 /// now stand alone without my support." travou o x9901: nem andava nem abria o M). Texto branco
 /// (menor canal >= 190) achado em (499,307) no print; a caixa pode mudar de altura.
-pub(super) const MSG_OK: &str = "\
+pub(in crate::win::nav) const MSG_OK: &str = "\
 ................................
 ................................
 .......###......................
@@ -52,7 +52,7 @@ pub(super) const MSG_OK: &str = "\
 ................................";
 
 /// Caixa de aviso com botão OK aberta? Devolve o centro do OK.
-pub(super) fn msgbox_ok(hwnd: isize) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn msgbox_ok(hwnd: isize) -> Option<(i32, i32)> {
     let t = Bits::from_text(MSG_OK);
     let (x0, y0, w, h) = (485i32, 230i32, 62i32, 210i32);
     let img = capture::capture(hwnd, Some([x0, y0, w, h]))?;
@@ -86,10 +86,10 @@ pub fn npc_dialog_open(hwnd: isize) -> bool {
     npc_frame_open(hwnd) || side_npc_close(hwnd).is_some() || chaos_shop_open(hwnd)
 }
 
-pub(super) const SIDE_CLOSE: &[u8;1600] = include_bytes!("../npc_side_close.gray");
-pub(super) const CHAOS_TITLE: &[u8;1984] = include_bytes!("../npc_chaos_title.gray");
+pub(in crate::win::nav) const SIDE_CLOSE: &[u8;1600] = include_bytes!("../../modelos/npc_side_close.gray");
+pub(in crate::win::nav) const CHAOS_TITLE: &[u8;1984] = include_bytes!("../../modelos/npc_chaos_title.gray");
 
-pub(super) fn gray_template_at(img: &capture::Image, template: &[u8], w: usize, h: usize) -> Option<(i32,i32)> {
+pub(in crate::win::nav) fn gray_template_at(img: &capture::Image, template: &[u8], w: usize, h: usize) -> Option<(i32,i32)> {
     if (img.w as usize)<w || (img.h as usize)<h { return None; }
     let mut best=None;
     for y in 0..=img.h as usize-h { for x in 0..=img.w as usize-w {
@@ -103,10 +103,10 @@ pub(super) fn gray_template_at(img: &capture::Image, template: &[u8], w: usize, 
     }}
     best.map(|(_,x,y)|(x,y))
 }
-pub(super) fn side_npc_caption(img: &capture::Image) -> bool {
+pub(in crate::win::nav) fn side_npc_caption(img: &capture::Image) -> bool {
     img.bgra.chunks_exact(4).filter(|p|p[1]>130 && (p[2] as u32)*10<(p[1] as u32)*7 && p[0]>80).count()>=80
 }
-pub(super) fn side_npc_close(hwnd: isize) -> Option<(i32,i32)> {
+pub(in crate::win::nav) fn side_npc_close(hwnd: isize) -> Option<(i32,i32)> {
     // Título de NPC em ciano + botão X. Inventário tem o mesmo X, mas não esse título.
     let header=capture::capture(hwnd,Some([750,35,240,25]))?;
     if !side_npc_caption(&header) { return None; }
@@ -114,11 +114,11 @@ pub(super) fn side_npc_close(hwnd: isize) -> Option<(i32,i32)> {
     let (x,y)=gray_template_at(&close,SIDE_CLOSE,40,40)?;
     Some((735+x+20,640+y+20))
 }
-pub(super) fn chaos_shop_open(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn chaos_shop_open(hwnd: isize) -> bool {
     capture::capture(hwnd,Some([205,41,134,26])).is_some_and(|img|gray_template_at(&img,CHAOS_TITLE,124,16).is_some())
 }
 
-pub(super) fn npc_frame_open(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn npc_frame_open(hwnd: isize) -> bool {
     let (w, h) = (358usize, 12usize);
     let s = 3i32;
     let Some(img) = capture::capture(hwnd, Some([333 - s, 122 - s, w as i32 + 2 * s, h as i32 + 2 * s])) else { return false };
@@ -144,7 +144,7 @@ pub(super) fn npc_frame_open(hwnd: isize) -> bool {
 }
 
 /// Fecha a janela de NPC (ESC) se houver uma. Devolve se fechou.
-pub(super) fn close_npc_dialog(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn close_npc_dialog(hwnd: isize) -> bool {
     let mut handled=false;
     for _ in 0..3 {
         let step=if let Some((x,y))=msgbox_ok(hwnd).or_else(||side_npc_close(hwnd)) {

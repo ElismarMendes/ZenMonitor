@@ -1,9 +1,9 @@
-use super::*;
+use crate::win::nav::*;
 
 /// NPCs vivos perto do char, lidos da memória no começo de cada trecho segurado.
-pub(super) static LIVE_NPCS: std::sync::Mutex<Vec<(i32, i32)>> = std::sync::Mutex::new(Vec::new());
+pub(in crate::win::nav) static LIVE_NPCS: std::sync::Mutex<Vec<(i32, i32)>> = std::sync::Mutex::new(Vec::new());
 
-pub(super) fn refresh_live_npcs(hwnd: isize, pos: (i32, i32)) {
+pub(in crate::win::nav) fn refresh_live_npcs(hwnd: isize, pos: (i32, i32)) {
     let v: Vec<(i32, i32)> = objects_near(hwnd, pos)
         .unwrap_or_default()
         .into_iter()
@@ -21,14 +21,14 @@ pub(super) fn refresh_live_npcs(hwnd: isize, pos: (i32, i32)) {
 // npcs_aprendidos.json (ao lado do agente) e o cursor passa a desviar dele em qualquer caminhada.
 
 /// Mapa (World) da caminhada em andamento: uma por vez (a automação é sequencial).
-pub(super) static CUR_WORLD: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-pub(super) static LEARNED: std::sync::Mutex<Option<std::collections::BTreeMap<u8, Vec<(i32, i32)>>>> = std::sync::Mutex::new(None);
+pub(in crate::win::nav) static CUR_WORLD: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+pub(in crate::win::nav) static LEARNED: std::sync::Mutex<Option<std::collections::BTreeMap<u8, Vec<(i32, i32)>>>> = std::sync::Mutex::new(None);
 
-pub(super) fn learned_path() -> std::path::PathBuf {
+pub(in crate::win::nav) fn learned_path() -> std::path::PathBuf {
     crate::config::AgentConfig::dir().join("npcs_aprendidos.json")
 }
 
-pub(super) fn with_learned<R>(f: impl FnOnce(&mut std::collections::BTreeMap<u8, Vec<(i32, i32)>>) -> R) -> Option<R> {
+pub(in crate::win::nav) fn with_learned<R>(f: impl FnOnce(&mut std::collections::BTreeMap<u8, Vec<(i32, i32)>>) -> R) -> Option<R> {
     let mut g = LEARNED.lock().ok()?;
     let m = g.get_or_insert_with(|| {
         std::fs::read_to_string(learned_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
@@ -41,13 +41,13 @@ pub fn learned_npcs(world: u8) -> Vec<(i32, i32)> {
 }
 
 /// Tile aproximado embaixo do ponto `q` da tela, com o char em `pos` (modelo pixel->tile).
-pub(super) fn tile_at_px(pos: (i32, i32), q: (i32, i32)) -> (i32, i32) {
+pub(in crate::win::nav) fn tile_at_px(pos: (i32, i32), q: (i32, i32)) -> (i32, i32) {
     let (px, py) = ((q.0 - CENTER.0) as f64, (q.1 - CENTER.1) as f64);
     let m = MODEL;
     (pos.0 + (m[0][0] * px + m[0][1] * py).round() as i32, pos.1 + (m[1][0] * px + m[1][1] * py).round() as i32)
 }
 
-pub(super) fn learn_npc(world: u8, tile: (i32, i32)) {
+pub(in crate::win::nav) fn learn_npc(world: u8, tile: (i32, i32)) {
     let added = with_learned(|m| {
         let v = m.entry(world).or_default();
         if v.iter().any(|t| cheb(*t, tile) <= 1) {
@@ -69,7 +69,7 @@ pub(super) fn learn_npc(world: u8, tile: (i32, i32)) {
 }
 
 /// Ponto da direção pedida ou, se cair no NPC, girado até sair dele.
-pub(super) fn avoid_npc(pos: (i32, i32), at: impl Fn(f64) -> (i32, i32)) -> (i32, i32) {
+pub(in crate::win::nav) fn avoid_npc(pos: (i32, i32), at: impl Fn(f64) -> (i32, i32)) -> (i32, i32) {
     let base = at(0.0);
     if !on_npc(pos, base) {
         return base;
@@ -90,26 +90,26 @@ pub fn walk(hwnd: isize, t: &Terrain, target: (i32, i32), status: &dyn Fn(String
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum WalkArrival { Exact, Spot, Trainer }
-pub(super) use zen_core::spots::ARRIVAL_RADIUS as SPOT_ARRIVAL_TOLERANCE;
+pub(in crate::win::nav) enum WalkArrival { Exact, Spot, Trainer }
+pub(in crate::win::nav) use zen_core::spots::ARRIVAL_RADIUS as SPOT_ARRIVAL_TOLERANCE;
 
-pub(super) fn walk_with_arrival(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
+pub(in crate::win::nav) fn walk_with_arrival(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
     let dest = Dest::from_world(t.world).ok_or("mapa do terreno não reconhecido")?;
     ensure_action_map(hwnd, dest)?;
     walk_legacy(hwnd, t, target, arrival, status)?;
     confirm_destination(hwnd, dest, Some((target, match arrival { WalkArrival::Spot => SPOT_ARRIVAL_TOLERANCE, WalkArrival::Trainer => 1, WalkArrival::Exact => 0 })))
 }
 
-pub(super) fn final_walk_arrived(pos: (i32, i32), target: (i32, i32), mobs: bool, elapsed_s: u64, arrival: WalkArrival) -> bool {
+pub(in crate::win::nav) fn final_walk_arrived(pos: (i32, i32), target: (i32, i32), mobs: bool, elapsed_s: u64, arrival: WalkArrival) -> bool {
     pos == target || (arrival == WalkArrival::Trainer && cheb(pos,target) <= 1) || (arrival == WalkArrival::Spot &&
         ((cheb(pos, target) <= 2 && mobs) || (elapsed_s >= 10 && cheb(pos, target) <= 1)))
 }
 
-pub(super) fn walking_route(t: &Terrain, from: (i32,i32), to: (i32,i32), arrival: WalkArrival) -> Option<Vec<(i32,i32)>> {
+pub(in crate::win::nav) fn walking_route(t: &Terrain, from: (i32,i32), to: (i32,i32), arrival: WalkArrival) -> Option<Vec<(i32,i32)>> {
     if arrival == WalkArrival::Trainer { npc_route(t, from, to) } else { t.path(from, to) }
 }
 
-pub(super) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
+pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
     let route = |from, to| walking_route(t, from, to, arrival);
     let t0 = std::time::Instant::now();
     CUR_WORLD.store(t.world, std::sync::atomic::Ordering::SeqCst);
@@ -375,19 +375,19 @@ pub fn observe_named(hwnd: isize) -> (Option<&'static str>, Option<(i32, i32)>) 
 }
 
 /// Mapa e coordenada precisam vir do mesmo quadro, sem inferir posição ausente.
-pub(super) fn destination_matches(snap: (Option<&str>, Option<(i32, i32)>), dest: Dest, target: Option<((i32, i32), i32)>) -> bool {
+pub(in crate::win::nav) fn destination_matches(snap: (Option<&str>, Option<(i32, i32)>), dest: Dest, target: Option<((i32, i32), i32)>) -> bool {
     snap.0 == Some(dest.name()) && snap.1.is_some_and(|p| {
         (0..=255).contains(&p.0) && (0..=255).contains(&p.1)
             && target.map_or(true, |(q, tolerance)| cheb(p,q) <= tolerance)
     })
 }
 
-pub(super) fn ensure_action_map(hwnd: isize, dest: Dest) -> Result<(i32, i32), String> {
+pub(in crate::win::nav) fn ensure_action_map(hwnd: isize, dest: Dest) -> Result<(i32, i32), String> {
     if observe_named(hwnd).0 != Some(dest.name()) { teleport(hwnd, dest)?; }
     confirm_destination(hwnd, dest, None)
 }
 
-pub(super) fn confirm_destination(hwnd: isize, dest: Dest, target: Option<((i32, i32), i32)>) -> Result<(i32, i32), String> {
+pub(in crate::win::nav) fn confirm_destination(hwnd: isize, dest: Dest, target: Option<((i32, i32), i32)>) -> Result<(i32, i32), String> {
     let mut last = (None, None);
     for attempt in 1..=3 {
         last = observe_named(hwnd);
@@ -413,7 +413,7 @@ pub fn prepare_route_retry(hwnd: isize, status: &dyn Fn(String)) -> Result<(),St
     Ok(())
 }
 
-pub(super) fn in_dest(hwnd: isize, d: Dest) -> (Option<bool>, Option<(i32, i32)>) {
+pub(in crate::win::nav) fn in_dest(hwnd: isize, d: Dest) -> (Option<bool>, Option<(i32, i32)>) {
     let (name, pos) = observe_named(hwnd);
     (pos.map(|_| name == Some(d.name())), pos)
 }

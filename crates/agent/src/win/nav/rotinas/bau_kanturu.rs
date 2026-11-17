@@ -1,33 +1,33 @@
-use super::*;
+use crate::win::nav::*;
 
 /// Tile de onde o baú foi aberto (zona segura do Kanturu, perto de onde o move deixa o char).
 pub const VAULT_TILE: (i32, i32) = (33, 217);
 /// Tile livre a oeste do baú (caminho de quem chega do teleporte), longe do NPC.
-pub(super) const VAULT_EXIT: (i32, i32) = (27, 217);
+pub(in crate::win::nav) const VAULT_EXIT: (i32, i32) = (27, 217);
 /// Corpo do Safety Guardian na tela com o char parado em VAULT_TILE.
-pub(super) const VAULT_NPC: (i32, i32) = (565, 445);
+pub(in crate::win::nav) const VAULT_NPC: (i32, i32) = (565, 445);
 /// Campo "Zen" do baú (aba atual) e do inventário (mesma fonte vermelha).
-pub(super) const STORAGE_ZEN: [i32; 4] = [610, 584, 80, 14];
-pub(super) const INV_ZEN: [i32; 4] = [786, 609, 78, 14];
+pub(in crate::win::nav) const STORAGE_ZEN: [i32; 4] = [610, 584, 80, 14];
+pub(in crate::win::nav) const INV_ZEN: [i32; 4] = [786, 609, 78, 14];
 /// Setas "aba anterior" e "próxima aba" no topo do baú. NÃO dão a volta: na 15 a seta
 /// direita não faz nada, na 1 a esquerda não faz nada (medido em 08/11).
-pub(super) const STORAGE_PREV: (i32, i32) = (511, 49);
-pub(super) const STORAGE_NEXT: (i32, i32) = (626, 49);
+pub(in crate::win::nav) const STORAGE_PREV: (i32, i32) = (511, 49);
+pub(in crate::win::nav) const STORAGE_NEXT: (i32, i32) = (626, 49);
 /// Botão "Deposit" (primeiro botão embaixo do baú).
-pub(super) const STORAGE_DEPOSIT: (i32, i32) = (476, 672);
+pub(in crate::win::nav) const STORAGE_DEPOSIT: (i32, i32) = (476, 672);
 /// Caixa "Enter the amount of Zen you would like to deposit.": campo, OK, CANCEL.
-pub(super) const DEPOSIT_INPUT: (i32, i32) = (514, 285);
-pub(super) const DEPOSIT_OK: (i32, i32) = (421, 340);
-pub(super) const DEPOSIT_CANCEL: (i32, i32) = (605, 340);
-pub(super) const VK_BACK: u16 = 0x08;
+pub(in crate::win::nav) const DEPOSIT_INPUT: (i32, i32) = (514, 285);
+pub(in crate::win::nav) const DEPOSIT_OK: (i32, i32) = (421, 340);
+pub(in crate::win::nav) const DEPOSIT_CANCEL: (i32, i32) = (605, 340);
+pub(in crate::win::nav) const VK_BACK: u16 = 0x08;
 
-pub(super) fn read_zen(hwnd: isize, region: [i32; 4]) -> Option<u64> {
+pub(in crate::win::nav) fn read_zen(hwnd: isize, region: [i32; 4]) -> Option<u64> {
     let img = capture::capture(hwnd, Some(region))?;
     zen_core::glyphs::read_number(&zen_core::glyphs::binarize_bgra(&img.bgra, img.w as usize, img.h as usize))
 }
 
 /// Duas leituras iguais com 300 ms de intervalo (o número pode estar mudando).
-pub(super) fn read_zen_stable(hwnd: isize, region: [i32; 4]) -> Option<u64> {
+pub(in crate::win::nav) fn read_zen_stable(hwnd: isize, region: [i32; 4]) -> Option<u64> {
     for _ in 0..6 {
         let a = read_zen(hwnd, region);
         sleep(300);
@@ -53,7 +53,7 @@ pub fn storage_tab(hwnd: isize) -> Option<u8> {
 
 /// Onde o Safety Guardian aparece na tela com o char em `at` (o NPC fica parado; o modelo
 /// pixel->tile dá o deslocamento).
-pub(super) fn npc_on_screen(at: (i32, i32)) -> (i32, i32) {
+pub(in crate::win::nav) fn npc_on_screen(at: (i32, i32)) -> (i32, i32) {
     let (dx, dy) = ((VAULT_TILE.0 - at.0) as f64, (VAULT_TILE.1 - at.1) as f64);
     let m = MODEL;
     let det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
@@ -62,12 +62,12 @@ pub(super) fn npc_on_screen(at: (i32, i32)) -> (i32, i32) {
 }
 
 /// Último print de erro do baú (o agente manda para o central, que guarda para análise).
-pub(super) static ERROR_SHOT: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+pub(in crate::win::nav) static ERROR_SHOT: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
 
 /// Prints passo a passo (treino do K/J pedido pelo dono): ligado só durante `fortune_bank`.
-pub(super) static TRACE: std::sync::Mutex<Option<Vec<(String, Vec<u8>)>>> = std::sync::Mutex::new(None);
+pub(in crate::win::nav) static TRACE: std::sync::Mutex<Option<Vec<(String, Vec<u8>)>>> = std::sync::Mutex::new(None);
 
-pub(super) fn trace(hwnd: isize, tag: &str) {
+pub(in crate::win::nav) fn trace(hwnd: isize, tag: &str) {
     let on = TRACE.lock().map(|g| g.is_some()).unwrap_or(false);
     if !on {
         return;
@@ -165,7 +165,7 @@ pub fn take_error_shot() -> Option<Vec<u8>> {
     ERROR_SHOT.lock().ok().and_then(|mut g| g.take())
 }
 
-pub(super) fn save_error_shot(hwnd: isize, why: &str) {
+pub(in crate::win::nav) fn save_error_shot(hwnd: isize, why: &str) {
     if let Some(png) = capture::capture(hwnd, None).and_then(|i| i.to_png()) {
         let p = crate::config::AgentConfig::dir().join("logs").join(format!(
             "bau-erro-{}.png",
@@ -187,7 +187,7 @@ pub fn storage_open(hwnd: isize) -> bool {
 /// Se o V não fechar (item preso no cursor depois de um clique no baú: x9901 em 10/11 19:41),
 /// ESC força a saída (dica do dono). ESC só com o baú CONFERIDO aberto: com nada aberto ele
 /// abre o menu do jogo.
-pub(super) fn close_storage(hwnd: isize) {
+pub(in crate::win::nav) fn close_storage(hwnd: isize) {
     for _ in 0..2 {
         if !storage_open(hwnd) && !inventory_open(hwnd) {
             return;
@@ -198,11 +198,11 @@ pub(super) fn close_storage(hwnd: isize) {
     force_close_storage(hwnd);
 }
 
-pub(super) const VK_ESCAPE: u16 = 0x1B;
+pub(in crate::win::nav) const VK_ESCAPE: u16 = 0x1B;
 
 /// Baú aberto fora de hora (o clique de andar caiu no Safety Guardian e pegou um item):
 /// ESC até 2 vezes, conferindo antes de cada uma. Devolve se o baú estava aberto.
-pub(super) fn force_close_storage(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn force_close_storage(hwnd: isize) -> bool {
     if !storage_open(hwnd) {
         return false;
     }

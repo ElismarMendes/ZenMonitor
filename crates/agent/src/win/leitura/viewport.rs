@@ -1,10 +1,10 @@
 //! Área de mundo restante quando os painéis dockados do cliente estão abertos.
 //! Só altera o estacionamento do cursor. A projeção/caminhada legada permanece intacta.
-use super::capture::Image;
+use crate::win::capture::Image;
 use std::{collections::HashMap, sync::{Mutex, OnceLock, atomic::{AtomicU32, Ordering}}, time::{Duration, Instant}};
 
-const CORNER: &[u8;768] = include_bytes!("panel_corner.gray");
-const CHARACTER_CORNER: &[u8;768] = include_bytes!("panel_character_corner.gray");
+const CORNER: &[u8;768] = include_bytes!("../modelos/panel_corner.gray");
+const CHARACTER_CORNER: &[u8;768] = include_bytes!("../modelos/panel_character_corner.gray");
 const PANEL_WIDTH: i32 = 304;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,10 +69,10 @@ pub fn cached(hwnd:isize,pid:u32)->Option<Layout> {
 }
 
 pub fn current(hwnd:isize)->Option<Layout> {
-    let pid=super::capture::window_pid(hwnd)?;
+    let pid=crate::win::capture::window_pid(hwnd)?;
     if let Some(layout)=cached(hwnd,pid) {return Some(layout);}
     // Quadro frio/invalidação por abertura de painel: uma leitura, nunca uma por clique de caminhada.
-    super::capture::capture(hwnd,Some([0,28,1027,64]))?;
+    crate::win::capture::capture(hwnd,Some([0,28,1027,64]))?;
     cached(hwnd,pid)
 }
 
@@ -90,26 +90,26 @@ mod tests {
     }
     #[test]
     fn x9901_sem_paineis_fica_no_centro_legado() {
-        let img=image(include_bytes!("../../tests/fixtures/cursor_layout/0-closed.png"));
+        let img=image(include_bytes!("../../../tests/fixtures/cursor_layout/0-closed.png"));
         assert_eq!(detect(&img),Some(Layout{left:3,right:1027}));
         assert_eq!(detect(&img).unwrap().home(),(515,400));
     }
     #[test]
     fn inventario_e_atributos_usam_o_centro_do_mundo_restante() {
-        for bytes in [include_bytes!("../../tests/fixtures/cursor_layout/1-inventory.png").as_slice(),include_bytes!("../../tests/fixtures/cursor_layout/3-character.png").as_slice()] {
+        for bytes in [include_bytes!("../../../tests/fixtures/cursor_layout/1-inventory.png").as_slice(),include_bytes!("../../../tests/fixtures/cursor_layout/3-character.png").as_slice()] {
             assert_eq!(detect(&image(bytes)).unwrap().home(),(363,400));
         }
     }
     #[test]
     fn expandido_e_atributos_com_inventario_deslocam_dois_paineis() {
-        for bytes in [include_bytes!("../../tests/fixtures/cursor_layout/2-expanded.png").as_slice(),include_bytes!("../../tests/fixtures/cursor_layout/4-character-inventory.png").as_slice()] {
+        for bytes in [include_bytes!("../../../tests/fixtures/cursor_layout/2-expanded.png").as_slice(),include_bytes!("../../../tests/fixtures/cursor_layout/4-character-inventory.png").as_slice()] {
             assert_eq!(detect(&image(bytes)).unwrap().home(),(211,400));
         }
     }
     #[test]
     fn reconhece_zyro_e_tres_paineis_do_chaos() {
-        assert_eq!(detect(&image(include_bytes!("../../tests/fixtures/npc_side/zyro.png"))).unwrap().home(),(363,400));
-        assert_eq!(detect(&image(include_bytes!("../../tests/fixtures/npc_side/chaos_inventory.png"))).unwrap().home(),(59,400));
+        assert_eq!(detect(&image(include_bytes!("../../../tests/fixtures/npc_side/zyro.png"))).unwrap().home(),(363,400));
+        assert_eq!(detect(&image(include_bytes!("../../../tests/fixtures/npc_side/chaos_inventory.png"))).unwrap().home(),(59,400));
     }
     #[test]
     fn cliques_do_mundo_preservam_cache_e_footer_invalida() {
@@ -121,8 +121,8 @@ mod tests {
     }
     #[test]
     fn invalida_quadro_anterior_a_tecla_e_nao_reutiliza_pid_diferente() {
-        let closed=image(include_bytes!("../../tests/fixtures/cursor_layout/0-closed.png"));
-        let inventory=image(include_bytes!("../../tests/fixtures/cursor_layout/1-inventory.png"));
+        let closed=image(include_bytes!("../../../tests/fixtures/cursor_layout/0-closed.png"));
+        let inventory=image(include_bytes!("../../../tests/fixtures/cursor_layout/1-inventory.png"));
         let before=epoch();
         observe(-100,10,before,&closed);
         assert_eq!(cached(-100,10).unwrap().home(),(515,400));

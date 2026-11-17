@@ -9,7 +9,7 @@
 //! - Uma linha com o mesmo texto vista nas últimas 2 h não é reportada de novo. Se X matar
 //!   Y duas vezes em 2 h, a segunda morte não vira alerta.
 
-use super::memory::Proc;
+use crate::win::memory::Proc;
 use std::collections::HashMap;
 use zen_core::chat::{parse_line, ChatConfig, ChatEvent};
 

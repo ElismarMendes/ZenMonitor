@@ -1,19 +1,14 @@
 //! Implementação real de `GameAccess` com Win32/WinRT.
 
-pub mod capture;
-pub mod chat;
-pub mod health;
-pub mod hotkey;
-pub mod input;
-pub mod viewport;
-pub mod memory;
+pub mod leitura;
+pub mod entrada;
 pub mod nav;
 
+// Caminhos antigos continuam valendo (diag, main e testes usam win::capture, win::input...).
+pub use leitura::{capture, memory, objects, chat, health, tcp, windows_list, ocr, viewport};
+pub use entrada::{input, hotkey};
+
 pub mod spots;
-pub mod objects;
-pub mod ocr;
-pub mod tcp;
-pub mod windows_list;
 
 use crate::{GameAccess, GameWindow};
 

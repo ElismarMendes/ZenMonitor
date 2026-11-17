@@ -1,5 +1,5 @@
 //! Orquestração de chegada. Usa nav e objects existentes, sem implementar outro mouse/leitor.
-use super::{input, nav, objects};
+use crate::win::{input, nav, objects};
 use crate::{config::AgentConfig, spot_service as group};
 use std::cell::RefCell;
 use zen_core::spots::{foreign_occupants, CatalogSpot, Spot};

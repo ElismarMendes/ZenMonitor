@@ -1,12 +1,12 @@
-use super::*;
+use crate::win::nav::*;
 
 /// Aviso que vai para o celular (CommandResult de falha) quando o baú não abre: nos testes de
 /// 15/11 o ClassicSM não abria o baú porque o cliente estava desatualizado e o launcher
 /// pedia atualização. Só o dono consegue resolver; o bot não deve ficar insistindo.
-pub(super) const BAU_DICA: &str = "verifique se o jogo precisa de atualização no launcher (o baú não abriu)";
+pub(in crate::win::nav) const BAU_DICA: &str = "verifique se o jogo precisa de atualização no launcher (o baú não abriu)";
 
 /// Aproxima uma vez e repete no máximo um clique no baú, sem voltar ao tile.
-pub(super) fn open_lor_vault(hwnd: isize, t: &Terrain, status: &dyn Fn(String)) -> Result<(), String> {
+pub(in crate::win::nav) fn open_lor_vault(hwnd: isize, t: &Terrain, status: &dyn Fn(String)) -> Result<(), String> {
     ensure_action_map(hwnd, Dest::Lorencia)?;
     if storage_open(hwnd) {
         return Ok(());
@@ -58,7 +58,7 @@ pub(super) fn open_lor_vault(hwnd: isize, t: &Terrain, status: &dyn Fn(String)) 
 }
 
 /// Com o baú aberto: volta para a aba 1 (seta esquerda até parar; título em inglês confere).
-pub(super) fn storage_first_tab(hwnd: isize) -> Result<Bits, String> {
+pub(in crate::win::nav) fn storage_first_tab(hwnd: isize) -> Result<Bits, String> {
     let title = || storage_title(hwnd).ok_or_else(|| "não li o título do baú".to_string());
     let mut prev = title()?;
     let mut misses = 0;
@@ -88,7 +88,7 @@ pub(super) fn storage_first_tab(hwnd: isize) -> Result<Bits, String> {
 
 
 /// Saque conferido: aba perde `amount`, inventário ganha `amount` - taxa.
-pub(super) fn withdraw(hwnd: isize, amount: u64, stored: u64, inv: u64) -> Result<u64, String> {
+pub(in crate::win::nav) fn withdraw(hwnd: isize, amount: u64, stored: u64, inv: u64) -> Result<u64, String> {
     use zen_core::vault::digit_keys;
     input::run(hwnd, &[Step::Click { x: STORAGE_WITHDRAW.0, y: STORAGE_WITHDRAW.1 }])?;
     sleep(1000);
@@ -127,7 +127,7 @@ pub(super) fn withdraw(hwnd: isize, amount: u64, stored: u64, inv: u64) -> Resul
 pub const TAB1_LOW: u64 = 400_000_000;
 
 /// Depósito conferido na aba aberta (mesma caixa do depósito do Kanturu).
-pub(super) fn deposit_here(hwnd: isize, amount: u64, stored: u64, inv: u64) -> Result<u64, String> {
+pub(in crate::win::nav) fn deposit_here(hwnd: isize, amount: u64, stored: u64, inv: u64) -> Result<u64, String> {
     use zen_core::vault::{deposit_ok, digit_keys};
     input::run(hwnd, &[Step::Click { x: STORAGE_DEPOSIT.0, y: STORAGE_DEPOSIT.1 }])?;
     sleep(1000);
@@ -207,7 +207,7 @@ pub fn lor_withdraw(hwnd: isize, t: &Terrain, target: u64, emergency: bool, chec
 }
 
 /// Converte no Lugard enquanto houver >= 1B no inventário. Confere cada conversão pelo Zen.
-pub(super) fn convert_all(hwnd: isize, t: &Terrain, status: &dyn Fn(String)) -> Result<u32, String> {
+pub(in crate::win::nav) fn convert_all(hwnd: isize, t: &Terrain, status: &dyn Fn(String)) -> Result<u32, String> {
     ensure_action_map(hwnd, Dest::Lorencia)?;
     let mut z = inv_zen(hwnd)?;
     if z < FORTUNE_ZEN {
@@ -246,7 +246,7 @@ pub(super) fn convert_all(hwnd: isize, t: &Terrain, status: &dyn Fn(String)) -> 
 }
 
 /// J -> Fortuna do Imperador -> Deposit All. Fecha o Item Bank no fim.
-pub(super) fn bank_deposit_all(hwnd: isize) -> Result<(), String> {
+pub(in crate::win::nav) fn bank_deposit_all(hwnd: isize) -> Result<(), String> {
     if !bank_open(hwnd) {
         input::run(hwnd, &[Step::Key(VK_J)])?;
         let t0 = std::time::Instant::now();
@@ -300,7 +300,7 @@ pub(super) fn bank_deposit_all(hwnd: isize) -> Result<(), String> {
 }
 
 /// Fecha o Gremory Case (X; se não fechar, K de novo).
-pub(super) fn close_gremory(hwnd: isize) {
+pub(in crate::win::nav) fn close_gremory(hwnd: isize) {
     for k in 0..2 {
         if !gremory_open(hwnd) {
             return;
@@ -313,7 +313,7 @@ pub(super) fn close_gremory(hwnd: isize) {
 /// Quantos dos 64 espaços do inventário estão ocupados (inventário aberto). Espaço vazio é
 /// a grade vermelho-escura; ocupado tem >40% de pixels fora dela (medido em 09/11: vazio ~0%,
 /// itens 49-98%).
-pub(super) fn inventory_filled(hwnd: isize) -> Option<u32> {
+pub(in crate::win::nav) fn inventory_filled(hwnd: isize) -> Option<u32> {
     let img = capture::capture(hwnd, Some([747, 347, 260, 260]))?;
     let w = img.w as usize;
     let mut n = 0;
@@ -341,7 +341,7 @@ pub(super) fn inventory_filled(hwnd: isize) -> Option<u32> {
 
 /// Esvazia o Gremory Case (só as linhas "Fortuna do Imperador") para o inventário e guarda
 /// tudo no Item Bank (J). Devolve quantas foram usadas.
-pub(super) fn gremory_to_bank(hwnd: isize, status: &dyn Fn(String)) -> Result<u32, String> {
+pub(in crate::win::nav) fn gremory_to_bank(hwnd: isize, status: &dyn Fn(String)) -> Result<u32, String> {
     close_inventory(hwnd);
     if !gremory_open(hwnd) {
         input::run(hwnd, &[Step::Key(VK_K)])?;
@@ -536,11 +536,11 @@ pub fn fortune(hwnd: isize, lor: &Terrain, all: bool, status: &dyn Fn(String)) -
 }
 
 /// Folga antes de devolver Zen ao baú (o char volta com 20M; abaixo disto não vale a viagem).
-pub(super) const EXCESS_SLACK: u64 = 30_000_000;
+pub(in crate::win::nav) const EXCESS_SLACK: u64 = 30_000_000;
 
 /// Deposita `amount` no baú de Lorencia: primeiro repõe a aba 1 até 1B, depois na primeira aba
 /// (2..15) onde cabe; se não couber inteiro numa só, divide. Devolve o Zen final do inventário.
-pub(super) fn lor_deposit_excess(hwnd: isize, t: &Terrain, amount: u64, status: &dyn Fn(String)) -> Result<u64, String> {
+pub(in crate::win::nav) fn lor_deposit_excess(hwnd: isize, t: &Terrain, amount: u64, status: &dyn Fn(String)) -> Result<u64, String> {
     use zen_core::vault::ZEN_CAP;
     open_lor_vault(hwnd, t, status)?;
     let fmt = zen_core::fmt::int_br;

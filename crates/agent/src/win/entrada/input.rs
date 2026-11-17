@@ -83,7 +83,7 @@ fn pin_screen(hwnd:HWND,x:i32,y:i32)->Result<(),String> {
     Ok(())
 }
 fn pin_relative(hwnd:HWND,x:i32,y:i32)->Result<(),String> {
-    let (ox,oy)=super::capture::frame_origin(hwnd.0 as isize).ok_or("janela indisponível para proteger cursor")?;
+    let (ox,oy)=crate::win::capture::frame_origin(hwnd.0 as isize).ok_or("janela indisponível para proteger cursor")?;
     pin_screen(hwnd,ox+x,oy+y)
 }
 
@@ -237,7 +237,7 @@ unsafe extern "system" fn mouse_hook(code: i32, w: windows::Win32::Foundation::W
         if info.flags & 3 == 0 {
             REAL_LAST.store(GetTickCount(), Ordering::SeqCst);
             // Clique físico pode abrir/fechar painel. Movimento simples não invalida.
-            if matches!(w.0 as u32,0x201|0x202|0x204|0x205|0x207|0x208) {super::viewport::invalidate();}
+            if matches!(w.0 as u32,0x201|0x202|0x204|0x205|0x207|0x208) {crate::win::viewport::invalidate();}
         }
     }
     CallNextHookEx(None, code, w, l)
@@ -250,7 +250,7 @@ unsafe extern "system" fn key_hook(code: i32, w: windows::Win32::Foundation::WPA
         // LLKHF_INJECTED = 0x10, LLKHF_LOWER_IL_INJECTED = 0x2
         if info.flags.0 & 0x12 == 0 {
             REAL_LAST.store(GetTickCount(), Ordering::SeqCst);
-            if matches!(w.0 as u32,WM_KEYDOWN|WM_KEYUP|WM_SYSKEYDOWN|WM_SYSKEYUP) {super::viewport::invalidate();}
+            if matches!(w.0 as u32,WM_KEYDOWN|WM_KEYUP|WM_SYSKEYDOWN|WM_SYSKEYUP) {crate::win::viewport::invalidate();}
             if info.vkCode == 0x77 {
                 match w.0 as u32 {
                     WM_KEYDOWN | WM_SYSKEYDOWN => {
@@ -354,7 +354,7 @@ fn point_button(nx:i32,ny:i32,button:MOUSE_EVENT_FLAGS)->INPUT {
 
 fn repair_cursor(hwnd:HWND,x:i32,y:i32)->Result<bool,String> {
     PIN_TICK.store(unsafe {GetTickCount()},Ordering::SeqCst);
-    let (ox,oy)=super::capture::frame_origin(hwnd.0 as isize).ok_or("janela do jogo indisponível")?;
+    let (ox,oy)=crate::win::capture::frame_origin(hwnd.0 as isize).ok_or("janela do jogo indisponível")?;
     let mut p=POINT::default();
     unsafe {GetCursorPos(&mut p)}.map_err(|_|"não li a posição do cursor")?;
     if (i64::from(p.x)-i64::from(ox+x)).abs().max((i64::from(p.y)-i64::from(oy+y)).abs())<=1 {return Ok(false);}
@@ -409,7 +409,7 @@ struct InputLease {
 
 impl InputLease {
     fn acquire(hwnd: isize) -> Result<Self, String> {
-        let pid = super::capture::window_pid(hwnd).ok_or("janela de destino inválida")?;
+        let pid = crate::win::capture::window_pid(hwnd).ok_or("janela de destino inválida")?;
         let name = zen_core::title::parse(&window_label(HWND(hwnd as *mut _))).name;
         INPUT_OWNER.lock().map_err(|_| "reserva de entrada indisponível")?
             .acquire(std::thread::current().id(), hwnd, pid)?;
@@ -418,7 +418,7 @@ impl InputLease {
 
     fn validate(&self, foreground: bool) -> Result<(), String> {
         let hwnd = HWND(self.hwnd as *mut _);
-        if super::capture::window_pid(self.hwnd) != Some(self.pid)
+        if crate::win::capture::window_pid(self.hwnd) != Some(self.pid)
             || zen_core::title::parse(&window_label(hwnd)).name != self.name
             || (foreground && unsafe { GetForegroundWindow() } != hwnd)
             || manual_mode()
@@ -562,7 +562,7 @@ fn is_shell(h: HWND) -> bool {
 /// Janela de topo que está no ponto (coordenadas da janela do jogo) — nós ou outra na frente.
 fn root_at(hwnd: HWND, x: i32, y: i32) -> Option<HWND> {
     use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
-    let (ox, oy) = super::capture::frame_origin(hwnd.0 as isize)?;
+    let (ox, oy) = crate::win::capture::frame_origin(hwnd.0 as isize)?;
     let h = unsafe { WindowFromPoint(POINT { x: ox + x, y: oy + y }) };
     if h.0.is_null() {
         return None;
@@ -613,10 +613,10 @@ fn park_game_cursor(hwnd: HWND) -> bool {
     if manual_mode() || mouse_button_down() || unsafe { GetForegroundWindow() } != hwnd || !game_window(hwnd) {
         return false;
     }
-    let Some(layout)=super::viewport::current(hwnd.0 as isize) else {return false;};
+    let Some(layout)=crate::win::viewport::current(hwnd.0 as isize) else {return false;};
     let (x, y) = layout.home();
     if root_at(hwnd, x, y) != Some(hwnd) { return false; }
-    let Some((ox, oy)) = super::capture::frame_origin(hwnd.0 as isize) else { return false; };
+    let Some((ox, oy)) = crate::win::capture::frame_origin(hwnd.0 as isize) else { return false; };
     let mut current = POINT::default();
     if unsafe { GetCursorPos(&mut current) }.is_err()
         || !cursor_needs_home((current.x, current.y), (ox + x, oy + y)) { return false; }
@@ -667,7 +667,7 @@ pub fn maintain_cursor(hwnd_raw: isize) {
     if lease.validate(true).is_err() { return; }
     LAST_CURSOR_CHECK.store(now, Ordering::SeqCst);
     if park_game_cursor(hwnd) {
-        tracing::info!(hwnd = hwnd_raw, pid = lease.pid, layout=?super::viewport::current(hwnd_raw), "CURSOR: reposicionado no centro do personagem durante farm");
+        tracing::info!(hwnd = hwnd_raw, pid = lease.pid, layout=?crate::win::viewport::current(hwnd_raw), "CURSOR: reposicionado no centro do personagem durante farm");
     }
 }
 
@@ -803,7 +803,7 @@ pub fn run(hwnd_raw: isize, steps: &[Step]) -> Result<(), String> {
             }
             let changes_layout=match *st {
                 Step::Key(vk)=> !matches!(vk,0x24|0x30..=0x39),
-                Step::Click{x,y}|Step::RightClick{x,y}=>super::viewport::cached(hwnd_raw,lease.pid)
+                Step::Click{x,y}|Step::RightClick{x,y}=>crate::win::viewport::cached(hwnd_raw,lease.pid)
                     .map_or(y>=640,|layout|layout.click_changes_layout(x,y)),
                 _=>false,
             };
@@ -815,14 +815,14 @@ pub fn run(hwnd_raw: isize, steps: &[Step]) -> Result<(), String> {
                     if vk == 0x24 {
                         tracing::info!(hwnd = hwnd_raw, pid = lease.pid, janela = %window_label(hwnd), "INPUT: enviando Home ao Helper");
                     }
-                    if changes_layout {super::viewport::invalidate();}
+                    if changes_layout {crate::win::viewport::invalidate();}
                     send(&[kb(vk, KEYBD_EVENT_FLAGS(0))]);
                     // 200 ms: o jogo lê as teclas uma vez por quadro. Com o notebook a 7 FPS
                     // (143 ms por quadro) os 70 ms de antes caíam entre dois quadros e V/Home não
                     // faziam nada (YouSee, 12/11: "não li o Zen do inventário" a noite toda).
                     std::thread::sleep(Duration::from_millis(200));
                     send(&[kb(vk, KEYEVENTF_KEYUP)]);
-                    if changes_layout {super::viewport::invalidate();}
+                    if changes_layout {crate::win::viewport::invalidate();}
                 }
                 Step::Click { x, y } | Step::RightClick { x, y } | Step::RightHold { x, y, .. } | Step::Hover { x, y } | Step::Wheel { x, y, .. } => {
                     // 180 ms (era 70): com o jogo a 7 FPS o clique curto caía entre dois quadros e era
@@ -838,7 +838,7 @@ pub fn run(hwnd_raw: isize, steps: &[Step]) -> Result<(), String> {
                     if unsafe { GetForegroundWindow() } != hwnd {
                         return Err("a janela perdeu o foco ao tirar outra da frente".into());
                     }
-                    let (ox, oy) = super::capture::frame_origin(hwnd.0 as isize).ok_or("não achei a janela do jogo")?;
+                    let (ox, oy) = crate::win::capture::frame_origin(hwnd.0 as isize).ok_or("não achei a janela do jogo")?;
                     let (sx, sy) = (ox + x, oy + y);
                     let (vx, vy, vw, vh) = unsafe {
                         (
@@ -878,7 +878,7 @@ pub fn run(hwnd_raw: isize, steps: &[Step]) -> Result<(), String> {
                     if root_at(hwnd, x, y) != Some(hwnd) {
                         return Err("ponto de clique coberto; comando não enviado".into());
                     }
-                    if changes_layout {super::viewport::invalidate();}
+                    if changes_layout {crate::win::viewport::invalidate();}
                     if !send(&[point_button(nx,ny,down)]) {return Err("o clique não foi enviado ao jogo".into());}
                     // Segurando: confere o foco a cada 100 ms e solta se a janela perder a frente.
                     let t = std::time::Instant::now();
@@ -901,7 +901,7 @@ pub fn run(hwnd_raw: isize, steps: &[Step]) -> Result<(), String> {
                         send(&[point_button(nx,ny,up)]);
                     } else {send(&[mouse(0,0,up)]);}
                     if repairs>0 {tracing::warn!(hwnd=hwnd_raw,correcoes=repairs,alvo=?(x,y),"CURSOR: deslocamento externo corrigido durante clique; ação não repetida");}
-                    if changes_layout {super::viewport::invalidate();}
+                    if changes_layout {crate::win::viewport::invalidate();}
                     if interrupted {return Err("clique interrompido por pausa/perda de foco; conferir o resultado antes de avançar".into());}
                 }
                 Step::WaitMs(ms) => std::thread::sleep(Duration::from_millis(u64::from(ms.min(30_000)))),
@@ -923,7 +923,7 @@ pub fn run(hwnd_raw: isize, steps: &[Step]) -> Result<(), String> {
 
 /// Converte coordenadas da JANELA INTEIRA em coordenadas absolutas do SendInput.
 fn absolute(hwnd: HWND, x: i32, y: i32) -> Result<(i32, i32), String> {
-    let (ox, oy) = super::capture::frame_origin(hwnd.0 as isize).ok_or("não achei a janela do jogo")?;
+    let (ox, oy) = crate::win::capture::frame_origin(hwnd.0 as isize).ok_or("não achei a janela do jogo")?;
     let (sx, sy) = (ox + x, oy + y);
     let (vx, vy, vw, vh) = unsafe {
         (

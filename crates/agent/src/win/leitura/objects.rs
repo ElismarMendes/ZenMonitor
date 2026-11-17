@@ -2,7 +2,7 @@
 //! Acha a entrada do próprio char (nome + posição da tela) uma vez por processo e depois lê
 //! um bloco em volta dela a cada consulta (formato em `zen_core::objects`).
 
-use super::memory::Proc;
+use crate::win::memory::Proc;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use zen_core::objects::{parse_block, parse_entry, Kind, Obj, STRIDE};

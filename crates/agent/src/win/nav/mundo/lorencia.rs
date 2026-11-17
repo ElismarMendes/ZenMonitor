@@ -1,15 +1,15 @@
-use super::*;
+use crate::win::nav::*;
 
 /// Pasta World de Lorencia.
 pub const LORENCIA_WORLD: u8 = 1;
 /// Botão "Lorencia" na janela do M.
-pub(super) const M_LORENCIA: (i32, i32) = (250, 503);
+pub(in crate::win::nav) const M_LORENCIA: (i32, i32) = (250, 503);
 /// Tile de onde se clica no Safety Guardian de Lorencia.
 pub const LOR_VAULT_TILE: (i32, i32) = (146, 112);
 /// Tile (estimado pelo modelo pixel->tile em 5 cliques reais) do Safety Guardian e do Lugard.
-pub(super) const LOR_GUARD: (f64, f64) = (144.5, 110.5);
+pub(in crate::win::nav) const LOR_GUARD: (f64, f64) = (144.5, 110.5);
 pub const LUGARD_TILE: (i32, i32) = (149, 114);
-pub(super) const LUGARD: (f64, f64) = (149.0, 115.9);
+pub(in crate::win::nav) const LUGARD: (f64, f64) = (149.0, 115.9);
 pub const FORTUNE_ZEN: u64 = 1_000_000_000;
 pub const MOVE_ZEN: u64 = 20_000_000;
 /// Volta com 30M (20M do move + Zen para o helper ligar no spot) + folga da taxa do baú.
@@ -24,25 +24,25 @@ pub const SAFETY_ZEN: u64 = 50_000_000;
 
 /// Quanto sacar da aba 1 para completar uma Fortuna: tudo o que falta ou nada. Não empresta se
 /// a aba ficaria em `floor` ou menos (antes ia esvaziando ~40M por ciclo: xWizard 771->691M).
-pub(super) fn fortune_borrow(need: u64, tab1: u64, floor: u64) -> u64 {
+pub(in crate::win::nav) fn fortune_borrow(need: u64, tab1: u64, floor: u64) -> u64 {
     if tab1 <= floor || need > tab1 - floor { 0 } else { need }
 }
-pub(super) const WITHDRAW_FEE: u64 = 200;
+pub(in crate::win::nav) const WITHDRAW_FEE: u64 = 200;
 /// Folga aceita na taxa do saque (a taxa real já passou de 6.000).
-pub(super) const WITHDRAW_SLACK: u64 = 10_000;
+pub(in crate::win::nav) const WITHDRAW_SLACK: u64 = 10_000;
 /// Botão "Withdraw" (segundo embaixo do baú). A caixa do valor é a mesma do depósito.
-pub(super) const STORAGE_WITHDRAW: (i32, i32) = (535, 672);
-pub(super) const VK_K: u16 = 0x4B;
-pub(super) const VK_J: u16 = 0x4A;
+pub(in crate::win::nav) const STORAGE_WITHDRAW: (i32, i32) = (535, 672);
+pub(in crate::win::nav) const VK_K: u16 = 0x4B;
+pub(in crate::win::nav) const VK_J: u16 = 0x4A;
 /// Gremory Case: 1ª linha clicável e passo entre linhas (9 visíveis).
-pub(super) const GREMORY_ROW0_Y: f64 = 158.0;
-pub(super) const GREMORY_ROW_STEP: f64 = 36.75;
-pub(super) const GREMORY_X: (i32, i32) = (692, 76);
-pub(super) const USE_IT: (i32, i32) = (379, 361);
-pub(super) const USE_CANCEL: (i32, i32) = (507, 361);
+pub(in crate::win::nav) const GREMORY_ROW0_Y: f64 = 158.0;
+pub(in crate::win::nav) const GREMORY_ROW_STEP: f64 = 36.75;
+pub(in crate::win::nav) const GREMORY_X: (i32, i32) = (692, 76);
+pub(in crate::win::nav) const USE_IT: (i32, i32) = (379, 361);
+pub(in crate::win::nav) const USE_CANCEL: (i32, i32) = (507, 361);
 
 /// "Fortuna do Imperador" na fonte da lista do Gremory Case e da caixa "Use It".
-pub(super) const T_FORTUNE: &str = "\
+pub(in crate::win::nav) const T_FORTUNE: &str = "\
 .........................................................................................................
 ............................................#..............................................#.............
 .#####...........#..........................#..........###.................................#.............
@@ -55,7 +55,7 @@ pub(super) const T_FORTUNE: &str = "\
 ...................................................................#.....................................
 ...................................................................#.....................................";
 /// "Fortuna do Imperador" na lista do Item Bank (J), fonte mais grossa.
-pub(super) const T_BANK: &str = "\
+pub(in crate::win::nav) const T_BANK: &str = "\
 ..................................................................................................
 .####...........#..........................#...........#.................................#........
 .#..............#..........................#...........#.................................#........
@@ -67,7 +67,7 @@ pub(super) const T_BANK: &str = "\
 .................................................................#................................
 .................................................................#................................";
 /// Botão "Deposit All" do menu da Fortuna no Item Bank (texto amarelo).
-pub(super) const T_DEPOSIT_ALL: &str = "\
+pub(in crate::win::nav) const T_DEPOSIT_ALL: &str = "\
 ............................................................
 ...................................................##.##....
 ..#####..........................##.##.......###...##.##....
@@ -80,12 +80,12 @@ pub(super) const T_DEPOSIT_ALL: &str = "\
 ................##..........................................
 ................##..........................................";
 /// O menu da Fortuna (Withdraw.../Deposit All) está aberto?
-pub(super) fn bank_menu(hwnd: isize) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn bank_menu(hwnd: isize) -> Option<(i32, i32)> {
     text_at(hwnd, [150, 60, 700, 640], T_DEPOSIT_ALL, 2, 14)
 }
 /// Título "Gremory Case" (igual no cliente em inglês e em português: o "Character Items" não
 /// aparece em português, visto no xWizard em 09/11 18:07).
-pub(super) const T_GREMORY: &str = "\
+pub(in crate::win::nav) const T_GREMORY: &str = "\
 ...................................................................
 ....####.......................................####................
 ...#..........................................#....................
@@ -97,7 +97,7 @@ pub(super) const T_GREMORY: &str = "\
 ......................................#............................
 .....................................#.............................";
 
-pub(super) fn bin_orange(img: &crate::image::Image) -> Bits {
+pub(in crate::win::nav) fn bin_orange(img: &crate::image::Image) -> Bits {
     let (w, h) = (img.w as usize, img.h as usize);
     let mut b = Bits::new(w, h);
     for (i, p) in img.bgra.chunks_exact(4).take(w * h).enumerate() {
@@ -107,13 +107,13 @@ pub(super) fn bin_orange(img: &crate::image::Image) -> Bits {
 }
 
 /// O modelo aparece em `region` (busca em todas as posições)? Menor diferença <= `max`.
-pub(super) fn text_in(hwnd: isize, region: [i32; 4], model: &str, mode: u8, max: usize) -> bool {
+pub(in crate::win::nav) fn text_in(hwnd: isize, region: [i32; 4], model: &str, mode: u8, max: usize) -> bool {
     text_at(hwnd, region, model, mode, max).is_some()
 }
 
 /// Onde o modelo aparece (canto superior esquerdo, em coordenadas da janela): a posição com
 /// menor diferença, se <= `max`.
-pub(super) fn text_at(hwnd: isize, region: [i32; 4], model: &str, mode: u8, max: usize) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn text_at(hwnd: isize, region: [i32; 4], model: &str, mode: u8, max: usize) -> Option<(i32, i32)> {
     let img = capture::capture(hwnd, Some(region))?;
     // 0 = laranja (lista do K), 1 = branco, 2 = amarelo dos botões do Item Bank.
     let b = match mode {
@@ -155,24 +155,24 @@ pub(super) fn text_at(hwnd: isize, region: [i32; 4], model: &str, mode: u8, max:
     best.map(|(_, x, y)| (x, y))
 }
 
-pub(super) fn gremory_row_y(i: usize) -> i32 {
+pub(in crate::win::nav) fn gremory_row_y(i: usize) -> i32 {
     (GREMORY_ROW0_Y + GREMORY_ROW_STEP * i as f64).round() as i32
 }
-pub(super) fn gremory_open(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn gremory_open(hwnd: isize) -> bool {
     text_in(hwnd, [405, 74, 92, 26], T_GREMORY, 0, 12)
 }
-pub(super) fn gremory_row_is_fortune(hwnd: isize, i: usize) -> bool {
+pub(in crate::win::nav) fn gremory_row_is_fortune(hwnd: isize, i: usize) -> bool {
     text_in(hwnd, [192, gremory_row_y(i) - 3, 113, 17], T_FORTUNE, 0, 25)
 }
-pub(super) fn use_dialog_is_fortune(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn use_dialog_is_fortune(hwnd: isize) -> bool {
     text_in(hwnd, [385, 268, 130, 24], T_FORTUNE, 1, 25)
 }
 /// Linha "Fortuna do Imperador" do Item Bank, procurada na tela toda: a janela do J não abre
 /// sempre no mesmo lugar (ELISMAR 09/11 16:01: o clique fixo caiu na linha de baixo).
-pub(super) fn bank_row(hwnd: isize) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn bank_row(hwnd: isize) -> Option<(i32, i32)> {
     text_at(hwnd, [150, 60, 700, 560], T_BANK, 1, 25)
 }
-pub(super) fn bank_open(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn bank_open(hwnd: isize) -> bool {
     bank_row(hwnd).is_some()
 }
 
@@ -182,7 +182,7 @@ pub fn in_lorencia(hwnd: isize) -> bool {
 }
 
 /// Onde o NPC parado no tile `npc` aparece na tela com o char em `at`.
-pub(super) fn npc_px(at: (i32, i32), npc: (f64, f64)) -> (i32, i32) {
+pub(in crate::win::nav) fn npc_px(at: (i32, i32), npc: (f64, f64)) -> (i32, i32) {
     let (dx, dy) = (npc.0 - at.0 as f64, npc.1 - at.1 as f64);
     let m = MODEL;
     let det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
@@ -192,7 +192,7 @@ pub(super) fn npc_px(at: (i32, i32), npc: (f64, f64)) -> (i32, i32) {
 
 /// Clica num NPC lido da memória e espera a janela dele (Trainer: título próprio; os demais:
 /// diálogo padrão de NPC).
-pub(super) fn npc_click(hwnd:isize,at:(i32,i32),name:&str,location:(i32,i32),lift:i32)->Result<(),String>{
+pub(in crate::win::nav) fn npc_click(hwnd:isize,at:(i32,i32),name:&str,location:(i32,i32),lift:i32)->Result<(),String>{
     let trainer=name.eq_ignore_ascii_case("Trainer");
     if trainer&&trainer_text(hwnd,TRAINER_TITLE){return Ok(());}
     let (x,y)=npc_px(at,(location.0 as f64,location.1 as f64));
@@ -220,7 +220,7 @@ pub fn world_terrain_of(hwnd: isize, world: u8) -> Result<Terrain, String> {
     Terrain::from_client_file(&raw).map_err(|e| e.to_string())
 }
 
-pub(super) fn close_inventory(hwnd: isize) {
+pub(in crate::win::nav) fn close_inventory(hwnd: isize) {
     for _ in 0..2 {
         if !inventory_open(hwnd) {
             return;
@@ -251,7 +251,7 @@ pub fn inv_zen(hwnd: isize) -> Result<u64, String> {
 }
 
 /// Passo proporcional até o waypoint, sem forçar 90 pixels perto do NPC.
-pub(super) fn npc_step_px(at: (i32, i32), waypoint: (i32, i32)) -> (i32, i32) {
+pub(in crate::win::nav) fn npc_step_px(at: (i32, i32), waypoint: (i32, i32)) -> (i32, i32) {
     let p = npc_px(at, (waypoint.0 as f64, waypoint.1 as f64));
     let (dx, dy) = ((p.0 - CENTER.0) as f64, (p.1 - CENTER.1) as f64);
     let scale = (180.0 / dx.hypot(dy).max(1.0)).min(1.0);
@@ -259,7 +259,7 @@ pub(super) fn npc_step_px(at: (i32, i32), waypoint: (i32, i32)) -> (i32, i32) {
 }
 
 /// Não recalcula o clique no NPC enquanto o char ainda estiver andando.
-pub(super) fn npc_still(hwnd: isize) -> Result<(i32, i32), String> {
+pub(in crate::win::nav) fn npc_still(hwnd: isize) -> Result<(i32, i32), String> {
     let mut last = position(hwnd).ok_or("NPC: não li as coordenadas")?;
     let mut stable = 0;
     for _ in 0..12 {
@@ -273,16 +273,16 @@ pub(super) fn npc_still(hwnd: isize) -> Result<(i32, i32), String> {
     Err("NPC: char ainda andando; parei sem repetir cliques".into())
 }
 
-pub(super) struct NpcProgress {
-    pub(super) target: (i32, i32),
-    pub(super) at: (i32, i32),
-    pub(super) previous: Option<(i32, i32)>,
-    pub(super) stalled: u8,
+pub(in crate::win::nav) struct NpcProgress {
+    pub(in crate::win::nav) target: (i32, i32),
+    pub(in crate::win::nav) at: (i32, i32),
+    pub(in crate::win::nav) previous: Option<(i32, i32)>,
+    pub(in crate::win::nav) stalled: u8,
 }
 
 impl NpcProgress {
-    pub(super) fn arrived(&self) -> bool { cheb(self.at, self.target) <= 1 }
-    pub(super) fn advance(&mut self, next: (i32, i32)) -> Result<(), String> {
+    pub(in crate::win::nav) fn arrived(&self) -> bool { cheb(self.at, self.target) <= 1 }
+    pub(in crate::win::nav) fn advance(&mut self, next: (i32, i32)) -> Result<(), String> {
         if cheb(next, self.target) <= 1 { self.at = next; return Ok(()); }
         self.stalled = if next == self.at { self.stalled + 1 } else { 0 };
         if self.stalled >= 2 || self.previous == Some(next) {
@@ -296,7 +296,7 @@ impl NpcProgress {
 
 /// O servidor pode colocar o char num tile NOMOVE do cliente ao teleportar.
 /// Autoriza somente a saída cardinal para um vizinho livre com rota válida.
-pub(super) fn npc_route(t: &Terrain, from: (i32, i32), to: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+pub(in crate::win::nav) fn npc_route(t: &Terrain, from: (i32, i32), to: (i32, i32)) -> Option<Vec<(i32, i32)>> {
     if let Some(route) = t.path(from, to) { return Some(route); }
     let attr = t.attr(from.0, from.1)?;
     if attr & zen_core::terrain::NOGROUND != 0 || t.walkable(from.0, from.1) || !t.walkable(to.0,to.1) {
@@ -312,11 +312,11 @@ pub(super) fn npc_route(t: &Terrain, from: (i32, i32), to: (i32, i32)) -> Option
 }
 
 /// Segura durante o trajeto e solta a três tiles; só o ajuste curto usa cliques.
-pub(super) fn npc_hold_far(at: (i32, i32), target: (i32, i32)) -> bool {
+pub(in crate::win::nav) fn npc_hold_far(at: (i32, i32), target: (i32, i32)) -> bool {
     cheb(at, target) > 3
 }
 
-pub(super) fn recover_route_window(hwnd: isize, dest: Dest, count: &mut usize, status: &dyn Fn(String)) -> Result<(i32,i32),String> {
+pub(in crate::win::nav) fn recover_route_window(hwnd: isize, dest: Dest, count: &mut usize, status: &dyn Fn(String)) -> Result<(i32,i32),String> {
     if *count>=2 { return Err("NPC: janelas repetidas no trajeto; limite de duas recuperações".into()); }
     *count+=1;
     status(format!("NPC: fechando janela acidental no trajeto ({}/2)",*count));
@@ -328,9 +328,9 @@ pub(super) fn recover_route_window(hwnd: isize, dest: Dest, count: &mut usize, s
 }
 
 #[derive(Default)]
-pub(super) struct NpcDetours { pub(super) tried: Vec<(i32, i32)> }
+pub(in crate::win::nav) struct NpcDetours { pub(super) tried: Vec<(i32, i32)> }
 impl NpcDetours {
-    pub(super) fn next(&mut self, t: &Terrain, at: (i32,i32), blocked: (i32,i32), target: (i32,i32)) -> Result<(i32,i32),String> {
+    pub(in crate::win::nav) fn next(&mut self, t: &Terrain, at: (i32,i32), blocked: (i32,i32), target: (i32,i32)) -> Result<(i32,i32),String> {
         if self.tried.len() >= 2 { return Err("NPC: limite de dois desvios locais; parei sem repetir a rota".into()); }
         // O tile para onde não deu para ir fica bloqueado no resto da rota (jogador parado ou
         // objeto que não está no arquivo do terreno; Lorencia (130,130), 15/11).
@@ -358,7 +358,7 @@ impl NpcDetours {
     }
 }
 
-pub(super) fn walk_near(hwnd: isize, t: &Terrain, tile: (i32, i32), status: &dyn Fn(String)) -> Result<(i32, i32), String> {
+pub(in crate::win::nav) fn walk_near(hwnd: isize, t: &Terrain, tile: (i32, i32), status: &dyn Fn(String)) -> Result<(i32, i32), String> {
     let started = std::time::Instant::now();
     let dest = Dest::from_world(t.world).ok_or("NPC: terreno de mapa desconhecido")?;
     ensure_action_map(hwnd, dest)?;

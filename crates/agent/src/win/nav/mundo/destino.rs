@@ -1,4 +1,4 @@
-use super::*;
+use crate::win::nav::*;
 
 /// M -> botão Kanturu. Confere que o mapa abriu antes de clicar; espera o nome virar Kanturu
 /// e a posição saltar. Duas tentativas; print de cada falha (09/11 11:59: CSRF "não teleportou").
@@ -36,12 +36,12 @@ pub struct Gate {
     pub arrival: (i32, i32),
 }
 
-pub(super) const fn g(button: (i32, i32), arrival: (i32, i32)) -> Gate {
+pub(in crate::win::nav) const fn g(button: (i32, i32), arrival: (i32, i32)) -> Gate {
     Gate { button, arrival }
 }
 
 /// Chegadas medidas em 11/11 (x9901, um move por botão).
-pub(super) const GATES_LOST_TOWER: [Gate; 7] = [
+pub(in crate::win::nav) const GATES_LOST_TOWER: [Gate; 7] = [
     g((355, 416), (206, 72)),
     g((323, 440), (243, 237)),
     g((345, 440), (86, 167)),
@@ -50,7 +50,7 @@ pub(super) const GATES_LOST_TOWER: [Gate; 7] = [
     g((345, 461), (52, 53)),
     g((367, 461), (8, 85)),
 ];
-pub(super) const GATES_DUNGEON: [Gate; 3] = [g((406, 571), (107, 247)), g((390, 599), (231, 126)), g((412, 599), (3, 83))];
+pub(in crate::win::nav) const GATES_DUNGEON: [Gate; 3] = [g((406, 571), (107, 247)), g((390, 599), (231, 126)), g((412, 599), (3, 83))];
 
 impl Dest {
     pub const ALL: [Dest; 13] = [
@@ -162,7 +162,7 @@ pub fn best_gate(dest: Dest, t: Option<&Terrain>, target: (i32, i32)) -> Gate {
 /// Pasta World da Arena (Data\World7\EncTerrain7.att).
 pub const ARENA_WORLD: u8 = 7;
 /// Botão "Stadium" na janela do M (= Arena).
-pub(super) const M_STADIUM: (i32, i32) = (783, 529);
+pub(in crate::win::nav) const M_STADIUM: (i32, i32) = (783, 529);
 
 /// Está na Arena (nome no canto)?
 pub fn in_arena(hwnd: isize) -> bool {
@@ -237,7 +237,7 @@ pub fn teleport_gate(hwnd: isize, to: Dest, gate: Gate) -> Result<(i32, i32), St
 }
 
 /// Áreas onde clique não anda: janela PICK, barra de baixo, minimapa, topo.
-pub(super) fn blocked(x: i32, y: i32) -> bool {
+pub(in crate::win::nav) fn blocked(x: i32, y: i32) -> bool {
     (80..=390).contains(&x) && (135..=625).contains(&y)
         || !(75..=680).contains(&y)
         || !(15..=1010).contains(&x)

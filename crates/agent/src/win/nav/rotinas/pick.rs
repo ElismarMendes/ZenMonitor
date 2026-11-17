@@ -1,21 +1,21 @@
-use super::*;
+use crate::win::nav::*;
 
 /// Texto "If move to SafeZone it will / be necessary to reactivate!" (150x42 em (160,208)).
-pub(super) const PICK_OPEN: &[u8; 150 * 42] = include_bytes!("../pick_open.gray");
+pub(in crate::win::nav) const PICK_OPEN: &[u8; 150 * 42] = include_bytes!("../../modelos/pick_open.gray");
 /// Texto "Zen" do botão (66x16; no print em (200,544), centro do botão em (233,551)).
-pub(super) const PICK_ZEN: &[u8; 66 * 16] = include_bytes!("../pick_zen.gray");
+pub(in crate::win::nav) const PICK_ZEN: &[u8; 66 * 16] = include_bytes!("../../modelos/pick_zen.gray");
 /// A janela NÃO fica parada: com o inventário (V) aberto ela vai para o meio da tela (texto em
 /// (404,189) em vez de (160,208); x9901/ReDMooN 16/11 16:59-17:51, 6 falhas). Procura o texto
 /// numa faixa larga e calcula a lista e a roda a partir dele.
-pub(super) const PICK_SEARCH_AREA: [i32; 4] = [100, 180, 600, 72];
+pub(in crate::win::nav) const PICK_SEARCH_AREA: [i32; 4] = [100, 180, 600, 72];
 /// Lista de botões relativa ao texto: (-10, +52), 170x335.
-pub(super) const PICK_LIST_FROM_TEXT: (i32, i32, i32, i32) = (-10, 52, 170, 335);
+pub(in crate::win::nav) const PICK_LIST_FROM_TEXT: (i32, i32, i32, i32) = (-10, 52, 170, 335);
 /// Roda do mouse relativa ao texto: meio da lista (fora da janela a roda mexe o zoom da câmera).
-pub(super) const PICK_WHEEL_FROM_TEXT: (i32, i32) = (73, 212);
-pub(super) const VK_Y: u16 = 0x59;
+pub(in crate::win::nav) const PICK_WHEEL_FROM_TEXT: (i32, i32) = (73, 212);
+pub(in crate::win::nav) const VK_Y: u16 = 0x59;
 
 /// Melhor posição do modelo cinza dentro de `img` com erro médio <= `max_err` (0..255).
-pub(super) fn gray_match(img: &capture::Image, template: &[u8], w: usize, h: usize, max_err: u32) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn gray_match(img: &capture::Image, template: &[u8], w: usize, h: usize, max_err: u32) -> Option<(i32, i32)> {
     let (iw, ih) = (img.w as usize, img.h as usize);
     if iw < w || ih < h { return None; }
     let gray: Vec<u8> = img.bgra.chunks_exact(4)
@@ -39,16 +39,16 @@ pub(super) fn gray_match(img: &capture::Image, template: &[u8], w: usize, h: usi
 }
 /// Origem do texto da Pick Window (coordenadas da janela do jogo), a partir do recorte de
 /// `PICK_SEARCH_AREA`.
-pub(super) fn pick_text_in(img: &capture::Image) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn pick_text_in(img: &capture::Image) -> Option<(i32, i32)> {
     let (x, y) = gray_match(img, PICK_OPEN, 150, 42, 8)?;
     Some((PICK_SEARCH_AREA[0] + x, PICK_SEARCH_AREA[1] + y))
 }
-pub(super) fn pick_list_area(text: (i32, i32)) -> [i32; 4] {
+pub(in crate::win::nav) fn pick_list_area(text: (i32, i32)) -> [i32; 4] {
     let (dx, dy, w, h) = PICK_LIST_FROM_TEXT;
     [text.0 + dx, text.1 + dy, w, h]
 }
 /// Centro do botão Zen em coordenadas da janela, a partir do recorte da lista em `area`.
-pub(super) fn pick_zen_in(img: &capture::Image, area: [i32; 4]) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn pick_zen_in(img: &capture::Image, area: [i32; 4]) -> Option<(i32, i32)> {
     let (x, y) = gray_match(img, PICK_ZEN, 66, 16, 6)?;
     Some((area[0] + x + 33, area[1] + y + 7))
 }
@@ -57,11 +57,11 @@ pub fn pick_window_at(hwnd: isize) -> Option<(i32, i32)> {
     pick_text_in(&capture::capture(hwnd, Some(PICK_SEARCH_AREA))?)
 }
 pub fn pick_window_open(hwnd: isize) -> bool { pick_window_at(hwnd).is_some() }
-pub(super) fn pick_zen_button(hwnd: isize, text: (i32, i32)) -> Option<(i32, i32)> {
+pub(in crate::win::nav) fn pick_zen_button(hwnd: isize, text: (i32, i32)) -> Option<(i32, i32)> {
     let area = pick_list_area(text);
     pick_zen_in(&capture::capture(hwnd, Some(area))?, area)
 }
-pub(super) fn wait_pick(hwnd: isize, open: bool, ms: u128) -> Option<Option<(i32, i32)>> {
+pub(in crate::win::nav) fn wait_pick(hwnd: isize, open: bool, ms: u128) -> Option<Option<(i32, i32)>> {
     let t0 = std::time::Instant::now();
     loop {
         let at = pick_window_at(hwnd);
@@ -71,7 +71,7 @@ pub(super) fn wait_pick(hwnd: isize, open: bool, ms: u128) -> Option<Option<(i32
     }
 }
 /// Fecha a Pick Window com Y (nunca ESC). Confere na tela.
-pub(super) fn close_pick(hwnd: isize) -> bool {
+pub(in crate::win::nav) fn close_pick(hwnd: isize) -> bool {
     for _ in 0..2 {
         if !pick_window_open(hwnd) { return true; }
         let _ = input::run(hwnd, &[Step::Key(VK_Y)]);
@@ -165,18 +165,18 @@ mod pick_tests {
     }
     #[test]
     fn acha_a_janela_parada_ou_deslocada_pelo_inventario() {
-        assert_eq!(pick_text_in(&img(include_bytes!("../../../tests/fixtures/pick/busca_aberta.png"))), Some((160, 208)));
-        assert_eq!(pick_text_in(&img(include_bytes!("../../../tests/fixtures/pick/busca_deslocada.png"))), Some((404, 189)));
-        assert_eq!(pick_text_in(&img(include_bytes!("../../../tests/fixtures/pick/busca_fechada.png"))), None);
+        assert_eq!(pick_text_in(&img(include_bytes!("../../../../tests/fixtures/pick/busca_aberta.png"))), Some((160, 208)));
+        assert_eq!(pick_text_in(&img(include_bytes!("../../../../tests/fixtures/pick/busca_deslocada.png"))), Some((404, 189)));
+        assert_eq!(pick_text_in(&img(include_bytes!("../../../../tests/fixtures/pick/busca_fechada.png"))), None);
     }
     #[test]
     fn acha_zen_na_lista_deslocada_e_depois_de_rolar() {
         let a = pick_list_area((160, 208));
-        assert_eq!(pick_zen_in(&img(include_bytes!("../../../tests/fixtures/pick/lista_aberta.png")), a), Some((233, 551)));
-        assert_eq!(pick_zen_in(&img(include_bytes!("../../../tests/fixtures/pick/lista_rolada.png")), a), Some((233, 445)));
-        assert_eq!(pick_zen_in(&img(include_bytes!("../../../tests/fixtures/pick/lista_fechada.png")), a), None);
+        assert_eq!(pick_zen_in(&img(include_bytes!("../../../../tests/fixtures/pick/lista_aberta.png")), a), Some((233, 551)));
+        assert_eq!(pick_zen_in(&img(include_bytes!("../../../../tests/fixtures/pick/lista_rolada.png")), a), Some((233, 445)));
+        assert_eq!(pick_zen_in(&img(include_bytes!("../../../../tests/fixtures/pick/lista_fechada.png")), a), None);
         let d = pick_list_area((404, 189));
-        assert_eq!(pick_zen_in(&img(include_bytes!("../../../tests/fixtures/pick/lista_deslocada.png")), d), Some((478, 531)));
+        assert_eq!(pick_zen_in(&img(include_bytes!("../../../../tests/fixtures/pick/lista_deslocada.png")), d), Some((478, 531)));
     }
     #[test]
     fn ida_a_cidade_e_volta_reativam_uma_vez() {
