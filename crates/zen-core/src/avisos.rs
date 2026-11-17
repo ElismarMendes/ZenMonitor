@@ -63,32 +63,28 @@ pub fn parse_slots(buf: &[u8], stride: usize) -> Vec<String> {
     buf.chunks(stride).filter_map(clean).collect()
 }
 
-/// Do lado do agente: o que é novo desde a leitura anterior (por texto). A primeira leitura só
-/// guarda a referência (o que já estava lá quando o agente abriu não é aviso novo).
+/// Do lado do agente. A tela mostra 6 linhas de aviso; cada aviso novo entra embaixo e sobe
+/// uma linha a cada ~10 s até sumir (~1 min na tela). Aviso novo = texto que está na fila agora
+/// e não estava na leitura anterior. Assim o mesmo texto repetido mais tarde (ex.: o quiz de
+/// toda hora) volta a ser avisado. A primeira leitura só guarda a referência.
 #[derive(Debug, Default)]
 pub struct Watcher {
-    known: Vec<String>,
+    prev: Vec<String>,
     started: bool,
 }
 
 impl Watcher {
     pub fn update(&mut self, current: Vec<String>) -> Vec<String> {
-        let fresh: Vec<String> = if self.started {
-            current.iter().filter(|t| !self.known.contains(t)).cloned().collect()
-        } else {
-            Vec::new()
-        };
-        self.started = true;
-        for t in current {
-            if !self.known.contains(&t) {
-                self.known.push(t);
+        let mut fresh: Vec<String> = Vec::new();
+        if self.started {
+            for t in &current {
+                if !self.prev.contains(t) && !fresh.contains(t) {
+                    fresh.push(t.clone());
+                }
             }
         }
-        // Guarda só os últimos 200 textos.
-        let n = self.known.len();
-        if n > 200 {
-            self.known.drain(..n - 200);
-        }
+        self.started = true;
+        self.prev = current;
         fresh
     }
 }
@@ -137,5 +133,8 @@ mod tests {
         assert!(w.update(vec!["velho aviso".into()]).is_empty());
         assert_eq!(w.update(vec!["novo aviso".into(), "velho aviso".into()]), vec!["novo aviso".to_string()]);
         assert!(w.update(vec!["novo aviso".into(), "velho aviso".into()]).is_empty());
+        // Sumiu da tela e voltou depois: é um aviso novo (quiz de toda hora).
+        assert!(w.update(vec![]).is_empty());
+        assert_eq!(w.update(vec!["velho aviso".into()]), vec!["velho aviso".to_string()]);
     }
 }

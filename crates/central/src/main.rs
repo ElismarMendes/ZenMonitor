@@ -472,11 +472,11 @@ async fn ws_pair(
     })
 }
 
-/// Aviso amarelo do servidor: grava em logs\\avisos.log (uma vez por texto, mesmo vindo de
-/// vários chars) e manda para o celular se bater com `avisos_celular`.
+/// Aviso amarelo do servidor: grava em logs\\avisos.log (uma vez por texto em 2 min: o mesmo
+/// aviso chega de vários chars em poucos segundos) e manda para o celular se bater com `avisos_celular`.
 async fn server_notice(app: &Shared, machine: &str, char_name: &str, at: u64, text: &str) {
     let text = zen_core::sanitize(text, 200);
-    if !app.avisos.lock().await.accept(&text, now(), 15 * 60) {
+    if !app.avisos.lock().await.accept(&text, now(), 120) {
         return;
     }
     let celular = zen_core::avisos::matches(&text, &app.cfg.avisos_celular);
