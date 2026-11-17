@@ -271,7 +271,7 @@ fn recover_with(
     }
     // v5: mapas extras POR CHAR (padrão: nenhum, só o mapa do F1). Lorencia nunca.
     let secondary: Vec<_> = cfg
-        .spot_maps
+        .mapas_extras
         .get(name)
         .into_iter()
         .flatten()

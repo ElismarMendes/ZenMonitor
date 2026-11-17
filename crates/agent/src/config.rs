@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 pub struct AgentConfig {
     /// Coordenação e fallback usam os leitores e o movimento existentes.
     pub spot_fallback: bool,
-    /// Antigo (lista única por PC). v5: não é mais usado; ver `spot_maps`.
+    /// Antigo (lista única por PC). v5: não é mais usado; ver `mapas_extras`.
     pub spot_secondary_maps: Vec<String>,
     /// v5 (17/11): mapas extras que cada char pode usar quando o spot dele está ocupado, além do
     /// mapa do próprio spot (F1), em ordem de preferência. Char fora da lista = só o mapa do F1.
-    /// Ex.: `[spot_maps]` / `AMUMU = ["Dungeon"]`.
-    pub spot_maps: std::collections::BTreeMap<String, Vec<String>>,
+    /// Ex.: `[mapas_extras]` / `AMUMU = ["Dungeon"]`.
+    pub mapas_extras: std::collections::BTreeMap<String, Vec<String>>,
     pub spot_primary_retry_s: u64,
     /// Personagens próprios adicionais, mesmo sem agente conectado.
     pub friendly_chars: Vec<String>,
@@ -126,7 +126,7 @@ impl Default for AgentConfig {
             spot_secondary_maps: vec!["Arena".into(), "Lost Tower".into(), "Dungeon".into()],
             spot_primary_retry_s: 600,
             friendly_chars: Vec::new(),
-            spot_maps: std::collections::BTreeMap::new(),
+            mapas_extras: std::collections::BTreeMap::new(),
 
             central_url: "ws://127.0.0.1:8787/ws/agent".into(),
             token: String::new(),
