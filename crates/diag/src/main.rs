@@ -2274,6 +2274,45 @@ fn main() -> anyhow::Result<()> {
                 writeln!(out, "  {a:#x}")?;
             }
         }
+        // v5 (17/11): procura textos na memória do jogo (sem diferenciar maiúsculas), com o
+        // endereço e o trecho em volta. Ex.: zen-diag texto <pid> nable "Pick Zen"
+        "texto" => {
+            let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
+            let needles: Vec<Vec<u8>> = args.iter().skip(2).map(|a| a.to_ascii_lowercase().into_bytes()).collect();
+            let t = std::time::Instant::now();
+            const CHUNK: usize = 1 << 20;
+            let mut buf = vec![0u8; CHUNK + 256];
+            let mut hits: Vec<(u64, String)> = Vec::new();
+            for (base, size) in p.writable_regions() {
+                let mut off = 0usize;
+                while off < size {
+                    let n = (CHUNK + 256).min(size - off);
+                    if p.read(base + off as u64, &mut buf[..n]) {
+                        let low: Vec<u8> = buf[..n].iter().map(|b| b.to_ascii_lowercase()).collect();
+                        for nd in &needles {
+                            let mut i = 0;
+                            while let Some(pos) = low[i..].windows(nd.len()).position(|w| w == nd.as_slice()) {
+                                let s0 = i + pos;
+                                if s0 >= CHUNK.min(n) { break; }
+                                let ini = s0.saturating_sub(48);
+                                let fim = (s0 + 80).min(n);
+                                let txt: String = buf[ini..fim].iter().map(|&b| if (32..127).contains(&b) { b as char } else { '.' }).collect();
+                                hits.push((base + off as u64 + s0 as u64, txt));
+                                i = s0 + nd.len();
+                                if hits.len() > 600 { break; }
+                            }
+                        }
+                    }
+                    off += CHUNK.min(size - off);
+                }
+            }
+            writeln!(out, "{} ocorrências em {:?}", hits.len(), t.elapsed())?;
+            hits.sort_by(|a, b| a.1.cmp(&b.1));
+            hits.dedup_by(|a, b| a.1 == b.1);
+            for (a, t) in hits.iter().take(300) {
+                writeln!(out, "{a:#012x}  {t}")?;
+            }
+        }
         "chat" | "listachat" => {
             let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
             let t = std::time::Instant::now();
