@@ -27,7 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
 const PW_RENDERFULLCONTENT: u32 = 2;
 
-pub(super) fn window_pid(hwnd: isize) -> Option<u32> {
+pub(in crate::win) fn window_pid(hwnd: isize) -> Option<u32> {
     use windows::Win32::UI::WindowsAndMessaging::{GetWindowThreadProcessId, IsWindow};
     let h = HWND(hwnd as *mut _);
     if !unsafe { IsWindow(h) }.as_bool() { return None; }

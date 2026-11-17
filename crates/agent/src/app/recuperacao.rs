@@ -37,6 +37,25 @@ pub(super) struct Recovery {
     pub(super) cause_rx: std::sync::mpsc::Receiver<DeathCause>,
 }
 
+/// v5: libera a automação do PC mesmo se a rotina der pânico no meio. Antes, um pânico matava
+/// a thread antes do `busy.store(false)` e a automação daquele PC ficava parada para todos os
+/// chars até o agente reiniciar. No caminho normal a rotina libera e responde como sempre; a
+/// guarda só age durante o desenrolar de um pânico (a reserva de entrada já se solta sozinha).
+pub(super) struct GuardaDaRotina {
+    pub(super) busy: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(super) tx: std::sync::mpsc::Sender<(String, Result<String, String>)>,
+    pub(super) name: String,
+}
+impl Drop for GuardaDaRotina {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            tracing::error!(char = %self.name, "rotina interrompida por erro interno (pânico); automação do PC liberada");
+            self.busy.store(false, std::sync::atomic::Ordering::SeqCst);
+            let _ = self.tx.send((self.name.clone(), Err("rotina interrompida por erro interno; automação liberada".into())));
+        }
+    }
+}
+
 pub(super) type DeathCause = (String, Vec<(u64, String)>, Option<(String, zen_core::chat::KillerKind)>);
 
 impl Recovery {
@@ -136,6 +155,7 @@ impl Recovery {
             m.insert(name.clone(), "Fortuna: indo para Lorencia".into());
         }
         std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
             let st = status.clone();
             let n2 = name.clone();
             let cb = move |s: String| {
@@ -180,6 +200,7 @@ impl Recovery {
         let (busy, status, tx, name) = (self.busy.clone(), self.status.clone(), self.done_tx.clone(), name.to_string());
         tracing::warn!(char = %name, spot = ?spot, "AUTOMAÇÃO: Dark Raven com pouca vida: indo ao Trainer");
         std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
             let st = status.clone();
             let n2 = name.clone();
             let cb = move |s: String| {
@@ -218,6 +239,7 @@ impl Recovery {
         self.busy.store(true, std::sync::atomic::Ordering::SeqCst);
         let (busy, status, tx, name) = (self.busy.clone(), self.status.clone(), self.done_tx.clone(), name.to_string());
         std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
             let st = status.clone();
             let n2 = name.clone();
             let cb = move |s: String| {
@@ -251,6 +273,7 @@ impl Recovery {
         self.busy.store(true, std::sync::atomic::Ordering::SeqCst);
         let (busy, status, tx, name) = (self.busy.clone(), self.status.clone(), self.done_tx.clone(), name.to_string());
         std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
             let st = status.clone();
             let n2 = name.clone();
             let cb = move |s: String| {
@@ -280,6 +303,7 @@ impl Recovery {
         let (busy, status, tx, name) = (self.busy.clone(), self.status.clone(), self.done_tx.clone(), name.to_string());
         tracing::warn!(char = %name, world, destino = ?target, "AUTOMAÇÃO: ir até (painel)");
         std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
             let st = status.clone();
             let n2 = name.clone();
             let cb = move |s: String| {
@@ -328,6 +352,7 @@ impl Recovery {
         }
         let retain_owned=self.return_owned.contains(&name);
         std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
             let st = status.clone();
             let n2 = name.clone();
             let cb = move |s: String| {

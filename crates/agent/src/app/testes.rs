@@ -68,3 +68,33 @@ mod spot_tests {
 
 #[allow(dead_code)]
 fn _assert_access_is_object_safe(_: &dyn GameAccess) {}
+
+#[cfg(test)]
+mod guarda_tests {
+    use super::*;
+    #[test]
+    fn panico_na_rotina_libera_o_pc_e_avisa() {
+        let busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (b, t) = (busy.clone(), tx.clone());
+        let h = std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: b, tx: t, name: "Teste".into() };
+            panic!("erro de propósito");
+        });
+        assert!(h.join().is_err());
+        assert!(!busy.load(std::sync::atomic::Ordering::SeqCst), "o PC tem de ficar livre");
+        let (name, r) = rx.try_recv().expect("tem de avisar o fim da rotina");
+        assert_eq!(name, "Teste");
+        assert!(r.unwrap_err().contains("erro interno"));
+    }
+    #[test]
+    fn caminho_normal_nao_muda() {
+        let busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: "Teste".into() };
+        }
+        assert!(busy.load(std::sync::atomic::Ordering::SeqCst), "sem pânico a guarda não mexe em nada");
+        assert!(rx.try_recv().is_err());
+    }
+}

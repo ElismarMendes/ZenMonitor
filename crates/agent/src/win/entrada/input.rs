@@ -435,7 +435,7 @@ impl Drop for InputLease {
     }
 }
 
-pub(super) fn reserve(hwnd: isize) -> Result<impl Drop, String> {
+pub(in crate::win) fn reserve(hwnd: isize) -> Result<impl Drop, String> {
     InputLease::acquire(hwnd)
 }
 
