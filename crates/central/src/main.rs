@@ -534,7 +534,7 @@ async fn analisar_falha(app: Shared, machine: String, message: String) {
     }
     tokio::time::sleep(Duration::from_secs(cfg.espera_log_s)).await;
     let (pcs, chars) = nomes_conhecidos(&app).await;
-    let log = ia::trecho_do_log(&machine, 60);
+    let log = ia::trecho_do_log(&machine, &message, now(), &chars);
     let (pergunta, tabela) = ia::montar_pergunta(&format!("{machine}: {message}"), &log, &pcs, &chars);
     match ia::perguntar(&app.http, &cfg, &pergunta).await {
         Ok((provedor, resposta)) => {
@@ -555,6 +555,8 @@ struct IaTesteReq {
     /// Opcional: testa com uma falha real (log do PC + anonimização), sem esperar nem avisar.
     machine: Option<String>,
     message: Option<String>,
+    /// Hora da falha no formato do log ("2026-11-17T10:12:22"); sem ela, agora.
+    ts: Option<String>,
 }
 
 async fn api_ia_teste(State(app): State<Shared>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
@@ -567,7 +569,8 @@ async fn api_ia_teste(State(app): State<Shared>, headers: HeaderMap, body: axum:
     let req: IaTesteReq = serde_json::from_slice(&body).unwrap_or_default();
     if let (Some(machine), Some(message)) = (req.machine, req.message) {
         let (pcs, chars) = nomes_conhecidos(&app).await;
-        let log = ia::trecho_do_log(&machine, 60);
+        let fim = req.ts.as_deref().and_then(ia::unix_de_iso).unwrap_or_else(now);
+        let log = ia::trecho_do_log(&machine, &message, fim, &chars);
         let (pergunta, tabela) = ia::montar_pergunta(&format!("{machine}: {message}"), &log, &pcs, &chars);
         let r = ia::perguntar(&app.http, &cfg, &pergunta).await;
         return Json(match r {

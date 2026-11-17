@@ -214,12 +214,26 @@ fn sem_usuario_windows(s: &str) -> String {
 // ---------------------------------------------------------------- chamada
 
 const INSTRUCOES: &str = "Você analisa falhas de um bot que automatiza personagens do jogo MU Online \
-(servidor The Classic) em vários PCs. Rotinas do bot: volta ao spot de farm (teleporte pelo M e caminhada), \
-Fortuna do Imperador no NPC Lugard (sacar Zen do baú de Lorencia, Gremory, guardar no J), restaurar o Dark \
-Raven no Trainer de Lorencia, ativar o Pick do Zen pela janela Y, cofre do Kanturu. O bot lê a tela e a \
-memória do jogo e usa teclado/mouse. Responda em português do Brasil, no máximo 4 linhas curtas: \
-1) causa mais provável, 2) o que o dono deve fazer (ou 'nada, o bot tenta de novo'). Use só o que está no \
-aviso e no log; se não der para saber, diga que não dá. Não invente números nem nomes.";
+(servidor The Classic) em 5 PCs. O bot lê a tela e a memória do jogo e usa teclado/mouse. Rotinas: \
+volta ao spot de farm (teleporte pelo M e caminhada até o tile), Fortuna do Imperador (sacar Zen da aba 1 do \
+baú de Lorencia, NPC Lugard, Gremory, guardar no J), restaurar o Dark Raven no Trainer de Lorencia, ativar o \
+Pick do Zen pela janela Y, baú do Kanturu.\n\
+Glossário das mensagens do bot:\n\
+- 'AUTOMAÇÃO de teclado/mouse alterada pelo painel ligada=false': o DONO desligou a automação do PC; tudo \
+que estava em andamento é interrompido de propósito. Se isso aparece logo antes da falha, essa é a causa.\n\
+- 'F8: controle manual' ou 'CONTROLE MANUAL': o dono pausou com F8; o bot espera.\n\
+- 'destino não confirmado: esperado X, lido Y': depois do teleporte/caminhada, a tela mostrava outro mapa \
+ou posição (teleporte não aconteceu, foi interrompido, ou o char morreu/caiu).\n\
+- 'SPOT_UNVERIFIED' / 'leitura de jogadores indisponível': o bot não conseguiu ler quem está perto do spot \
+e, por segurança, não confirmou a chegada.\n\
+- 'saque ... NÃO conferiu: aba A -> Some(A), char C -> Some(C)': o valor da aba e do char não mudaram, ou \
+seja, o saque não aconteceu (clique/digitação não pegou ou janela do baú mudou).\n\
+- 'Pick Window (Y) não abriu': a janela do Pick não apareceu; se há 'Zen Obtained' o pick já estava ativo.\n\
+- 'tempo esgotado andando': a caminhada passou de 4 min (travou em obstáculo ou mobs).\n\
+O bot tenta de novo sozinho na maioria dos casos. Responda em português do Brasil, no máximo 3 linhas: \
+1) causa mais provável, citando a linha do log que mostra isso; 2) o que o dono deve fazer, ou 'nada, o bot \
+tenta de novo'. Use só o aviso e o log. Nunca sugira atualizar jogo, launcher, drivers ou o bot, nem coisas \
+fora do jogo. Se o log não mostrar a causa, diga 'o log não mostra a causa'.";
 
 /// Pergunta à cadeia de provedores. Devolve (provedor, resposta) do primeiro que responder.
 pub async fn perguntar(http: &reqwest::Client, cfg: &IaConfig, pergunta: &str) -> Result<(String, String), String> {
@@ -232,7 +246,7 @@ pub async fn perguntar(http: &reqwest::Client, cfg: &IaConfig, pergunta: &str) -
         let corpo = serde_json::json!({
             "model": p.modelo,
             "temperature": 0.2,
-            "max_tokens": 400,
+            "max_tokens": 700,
             "messages": [
                 {"role": "system", "content": INSTRUCOES},
                 {"role": "user", "content": pergunta},
@@ -274,19 +288,60 @@ pub async fn perguntar(http: &reqwest::Client, cfg: &IaConfig, pergunta: &str) -
     }
 }
 
-/// Últimas linhas relevantes (avisos/erros) do log que o agente mandou para a central.
-pub fn trecho_do_log(machine: &str, linhas: usize) -> String {
-    let p = CentralConfig::dir().join("logs").join("agentes").join(format!("{machine}.log"));
-    let Ok(bytes) = std::fs::read(&p) else { return String::new() };
-    let ini = bytes.len().saturating_sub(96 * 1024);
-    let txt = String::from_utf8_lossy(&bytes[ini..]);
-    let rel: Vec<&str> = txt.lines().filter(|l| l.contains(" WARN ") || l.contains(" ERROR ")).collect();
+/// Data/hora UTC no formato dos logs ("2026-11-17T10:12:22") a partir de segundos Unix.
+pub fn iso_utc(t: u64) -> String {
+    let dias = (t / 86_400) as i64;
+    let seg = t % 86_400;
+    // civil_from_days (Howard Hinnant)
+    let z = dias + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}", seg / 3600, seg % 3600 / 60, seg % 60)
+}
+
+/// Só o que interessa à falha: avisos/erros dos 45 min até `fim`, do char da falha (ou de
+/// nenhum char: linhas do PC), no máximo `linhas`, cada uma curta. Antes (17/11) iam 64 linhas
+/// de horas e de vários chars: a IA se confundia e o Groq recusava por limite de tokens.
+pub fn filtrar_log(txt: &str, fim: u64, chars_da_falha: &[String], todos_chars: &[String], linhas: usize) -> String {
+    let (de, ate) = (iso_utc(fim.saturating_sub(45 * 60)), iso_utc(fim + 60));
+    let menciona = |l: &str, n: &String| l.contains(&format!("char={n}")) || l.contains(&format!("char=\"{n}\"")) || l.contains(&format!("{n}:"));
+    let rel: Vec<&str> = txt
+        .lines()
+        .filter(|l| l.contains(" WARN ") || l.contains(" ERROR "))
+        .filter(|l| l.len() > 19 && l[..19] >= de[..] && l[..19] <= ate[..])
+        .filter(|l| {
+            let deste = chars_da_falha.iter().any(|n| menciona(l, n));
+            let de_outro = todos_chars.iter().filter(|n| !chars_da_falha.contains(n)).any(|n| menciona(l, n));
+            deste || !de_outro
+        })
+        .collect();
     let de = rel.len().saturating_sub(linhas);
     rel[de..]
         .iter()
-        .map(|l| l.chars().take(300).collect::<String>())
+        .map(|l| {
+            // Tira a data (fica só a hora) e o caminho do módulo: menos tokens, mesmo conteúdo.
+            let l = if l.len() > 19 { &l[11..] } else { l };
+            let l = l.split_once(" zen_agent").map(|(a, b)| format!("{a}{}", b.split_once(": ").map(|x| format!(": {}", x.1)).unwrap_or_default())).unwrap_or_else(|| l.to_string());
+            l.chars().take(220).collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Trecho do log (que o agente mandou para a central) para a falha `aviso` terminada em `fim`.
+pub fn trecho_do_log(machine: &str, aviso: &str, fim: u64, todos_chars: &[String]) -> String {
+    let p = CentralConfig::dir().join("logs").join("agentes").join(format!("{machine}.log"));
+    let Ok(bytes) = std::fs::read(&p) else { return String::new() };
+    let ini = bytes.len().saturating_sub(256 * 1024);
+    let txt = String::from_utf8_lossy(&bytes[ini..]);
+    let da_falha: Vec<String> = todos_chars.iter().filter(|n| aviso.contains(n.as_str())).cloned().collect();
+    filtrar_log(&txt, fim, &da_falha, todos_chars, 25)
 }
 
 /// Monta a pergunta (já anônima). Separado para teste.
@@ -298,6 +353,29 @@ pub fn montar_pergunta(aviso: &str, log: &str, pcs: &[String], chars: &[String])
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn data_iso_igual_ao_log() {
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00");
+        assert_eq!(iso_utc(1_794_920_747), "2026-11-17T13:05:47");
+    }
+
+    #[test]
+    fn log_so_da_janela_e_do_char_da_falha() {
+        let log = "2026-11-17T10:00:00.1Z  WARN zen_agent::app: antigo char=AMUMU\n\
+2026-11-17T12:50:00.1Z  WARN zen_agent::app: outro char=ClassicSM\n\
+2026-11-17T12:51:00.1Z  WARN zen_agent::app: AUTOMAÇÃO alterada pelo painel ligada=false\n\
+2026-11-17T12:52:00.1Z  INFO zen_agent::app: info char=AMUMU\n\
+2026-11-17T12:53:00.1Z  WARN zen_agent::win::nav: falhou char=AMUMU\n";
+        let fim = 1_794_920_000 + 3 * 60; // 12:56:20
+        let todos = vec!["AMUMU".to_string(), "ClassicSM".to_string()];
+        let r = filtrar_log(log, fim, &["AMUMU".to_string()], &todos, 25);
+        assert!(!r.contains("antigo"), "fora dos 45 min: {r}");
+        assert!(!r.contains("ClassicSM"), "de outro char: {r}");
+        assert!(!r.contains("info"), "só WARN/ERROR: {r}");
+        assert!(r.contains("ligada=false") && r.contains("falhou char=AMUMU"), "{r}");
+        assert!(r.starts_with("12:51:00") && !r.contains("zen_agent"), "linha curta: {r}");
+    }
 
     #[test]
     fn anonimiza_nomes_ips_e_usuario_e_desfaz_na_resposta() {
@@ -351,4 +429,19 @@ mod testes {
 /// Reserva uma análise (teto diário e repetição). Exposto para a central.
 pub fn reservar_publico(chave_falha: &str, agora: u64, cfg: &IaConfig) -> Result<(), &'static str> {
     reservar(chave_falha, agora, cfg)
+}
+
+/// Inverso de `iso_utc` (só "AAAA-MM-DDTHH:MM:SS"). Para o teste com falhas antigas.
+pub fn unix_de_iso(s: &str) -> Option<u64> {
+    let n = |a: usize, b: usize| s.get(a..b)?.parse::<i64>().ok();
+    let (y, m, d, h, mi, se) = (n(0, 4)?, n(5, 7)?, n(8, 10)?, n(11, 13)?, n(14, 16)?, n(17, 19)?);
+    // days_from_civil (Howard Hinnant)
+    let y2 = if m <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let dias = era * 146_097 + doe - 719_468;
+    u64::try_from(dias * 86_400 + h * 3600 + mi * 60 + se).ok()
 }
