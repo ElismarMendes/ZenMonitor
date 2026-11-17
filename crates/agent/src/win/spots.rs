@@ -93,7 +93,14 @@ pub fn check_approach_at(hwnd: isize, world: u8, pos: (i32, i32), final_check: b
             if *retain_owned {
                 return Ok(());
             } // Não é uma declaração de spot vazio: a posse foi estabelecida antes.
-            let objects = objects::nearby_hwnd(hwnd, name, pos);
+            // v5: a leitura de jogadores pode falhar num ciclo isolado (x9901, 17/11); tenta de novo
+            // antes de desistir. Falha persistente continua sendo "não verificado", nunca "vazio".
+            let mut objects = objects::nearby_hwnd(hwnd, name, pos);
+            for _ in 0..3 {
+                if objects.is_some() { break; }
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                objects = objects::nearby_hwnd(hwnd, name, pos);
+            }
             let foreign = foreign_occupants(objects.as_deref(), *spot, name, |n| {
                 directory.friendly(n) || friendly.iter().any(|f| f.eq_ignore_ascii_case(n))
         })
@@ -143,6 +150,23 @@ pub fn route_guard<T>(name:&str,spot:Spot,f:impl FnOnce()->T)->Result<T,String> 
     let friendly=cfg.spots.keys().cloned().chain(cfg.friendly_chars.iter().cloned()).collect();
     let retain_owned=group::home(&cfg,name)==Some(spot)||group::active(name).is_some_and(|a|a.spot==spot);
     Ok(guarded(name,spot,friendly,group::epoch(name),retain_owned,f))
+}
+
+/// Passos a pé até a entrada de cada mapa: safe zone + pontos de chegada do M (Dungeon não tem
+/// safe; os andares da Lost Tower só se ligam por portal). Terreno ilegível = mapa fica de fora
+/// (ordem do F2).
+fn entry_distances(hwnd: isize, worlds: impl Iterator<Item = u8>) -> std::collections::HashMap<u8, Vec<u16>> {
+    let mut out = std::collections::HashMap::new();
+    for w in worlds {
+        if out.contains_key(&w) { continue; }
+        let Ok(t) = nav::world_terrain_of(hwnd, w) else { continue };
+        let mut sources = t.safe_tiles();
+        if let Some(d) = nav::Dest::from_world(w) {
+            sources.extend(d.gates().iter().map(|g| g.arrival));
+        }
+        out.insert(w, t.distances_from(&sources));
+    }
+    out
 }
 
 pub fn local_catalog(cfg: &AgentConfig) -> Vec<CatalogSpot> {
@@ -196,11 +220,18 @@ pub fn resume(
 }
 
 fn arrival_choices(first: Spot, home: Spot, catalog: &[CatalogSpot], secondary: &[u8], fallback: bool, keep_owned: bool, locked: bool) -> Vec<Spot> {
-    let mut choices = zen_core::spots::candidates(first, &catalog, &secondary);
+    arrival_choices_ranked(first, home, catalog, secondary, fallback, keep_owned, locked, &|_| None)
+}
+
+/// Ordem de busca: o destino pedido, depois os spots do mapa do F1 do mais perto ao mais longe
+/// da entrada (safe zone ou chegada do M), depois os mapas liberados para o char.
+#[allow(clippy::too_many_arguments)]
+fn arrival_choices_ranked(first: Spot, home: Spot, catalog: &[CatalogSpot], secondary: &[u8], fallback: bool, keep_owned: bool, locked: bool, dist: &dyn Fn(Spot) -> Option<u32>) -> Vec<Spot> {
+    let mut choices = zen_core::spots::candidates_ranked(first, catalog, secondary, dist);
     // O principal sempre é considerado antes dos mapas secundários.
     if first.world != home.world {
         choices = std::iter::once(first)
-            .chain(zen_core::spots::candidates(home, &catalog, &secondary))
+            .chain(zen_core::spots::candidates_ranked(home, catalog, secondary, dist))
             .collect();
         let mut unique = Vec::new();
         choices.retain(|s| {
@@ -238,13 +269,19 @@ fn recover_with(
             catalog.push(e);
         }
     }
+    // v5: mapas extras POR CHAR (padrão: nenhum, só o mapa do F1). Lorencia nunca.
     let secondary: Vec<_> = cfg
-        .spot_secondary_maps
-        .iter()
+        .spot_maps
+        .get(name)
+        .into_iter()
+        .flatten()
         .filter_map(|m| zen_core::spots::world_for_name(m))
         .filter(|w| *w != 1)
         .collect();
-    let choices = arrival_choices(first, home, &catalog, &secondary, cfg.spot_fallback, keep_owned, cfg.locked_spots.iter().any(|n| n == name));
+    let distances = entry_distances(hwnd, std::iter::once(first.world).chain(std::iter::once(home.world)).chain(secondary.iter().copied()));
+    let dist = |s: Spot| distances.get(&s.world).and_then(|d| d.get(s.y as usize * 256 + s.x as usize)).filter(|v| **v != u16::MAX).map(|v| *v as u32);
+    let choices = arrival_choices_ranked(first, home, &catalog, &secondary, cfg.spot_fallback, keep_owned, cfg.locked_spots.iter().any(|n| n == name), &dist);
+    tracing::info!(char = name, ordem = ?choices.iter().map(|s| format!("{} ({} passos)", s.id(), dist(*s).map_or("?".into(), |d| d.to_string()))).collect::<Vec<_>>(), "spots: ordem de busca");
     let friendly: Vec<_> = cfg
         .spots
         .keys()

@@ -217,6 +217,30 @@ pub fn candidates(first: Spot, catalog: &[CatalogSpot], secondary: &[u8]) -> Vec
     result
 }
 
+/// v5 (17/11, pedido do dono): candidatos em ordem de distância a pé da entrada do mapa (safe
+/// zone ou chegada do M), só nos mapas permitidos ao char. O destino pedido (`first`) vem
+/// sempre primeiro. Spots a até 2 tiles de um já listado contam como o mesmo spot. Sem
+/// distância conhecida (terreno ilegível, sem caminho) o spot vai para o fim, na ordem do F2.
+pub fn candidates_ranked(first: Spot, catalog: &[CatalogSpot], worlds: &[u8], dist: &dyn Fn(Spot) -> Option<u32>) -> Vec<Spot> {
+    let mut result = vec![first];
+    let mut order: Vec<u8> = vec![first.world];
+    for w in worlds {
+        if !order.contains(w) {
+            order.push(*w);
+        }
+    }
+    for world in order {
+        let mut map: Vec<_> = catalog.iter().filter(|c| c.spot.world == world && c.spot.valid()).collect();
+        map.sort_by_key(|c| (dist(c.spot).unwrap_or(u32::MAX), c.priority, c.spot.x, c.spot.y));
+        for c in map {
+            if !result.iter().any(|r| r.near(c.spot, 2)) {
+                result.push(c.spot);
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +381,24 @@ mod tests {
         assert_eq!(chosen, Some(s(7, 30)));
         assert_eq!(d.owner(s(38, 20), "Eu", 0), Some("Nosso"));
     }
+    #[test]
+    fn ordem_pela_distancia_da_safe_so_nos_mapas_permitidos() {
+        let c = |w: u8, x: i32, y: i32, p: u32| CatalogSpot { spot: Spot { world: w, x, y }, priority: p };
+        let catalog = vec![c(38, 90, 66, 0), c(38, 40, 232, 5), c(38, 41, 233, 6), c(38, 123, 233, 1), c(2, 9, 59, 0), c(7, 48, 57, 0)];
+        let dist = |s: Spot| Some(match (s.x, s.y) { (40, 232) => 13, (41, 233) => 14, (123, 233) => 80, (90, 66) => 433, _ => 50 });
+        let home = Spot { world: 38, x: 46, y: 71 };
+        // Só o mapa do F1: o mais perto da safe primeiro; 41,233 (a 1 tile de 40,232) não repete.
+        assert_eq!(candidates_ranked(home, &catalog, &[], &dist),
+            vec![home, Spot { world: 38, x: 40, y: 232 }, Spot { world: 38, x: 123, y: 233 }, Spot { world: 38, x: 90, y: 66 }]);
+        // Dungeon liberado: entra depois de todo o Kanturu; Arena (7) não liberada nunca aparece.
+        let r = candidates_ranked(home, &catalog, &[2], &dist);
+        assert_eq!(r.last(), Some(&Spot { world: 2, x: 9, y: 59 }));
+        assert!(!r.iter().any(|s| s.world == 7));
+        // Sem distância: ordem do F2 no fim.
+        let r = candidates_ranked(home, &catalog, &[], &|_| None);
+        assert_eq!(r[1], Spot { world: 38, x: 90, y: 66 });
+    }
+
     #[test]
     fn prioridade_por_mapa_sem_duplicar() {
         let cat = vec![

@@ -85,6 +85,44 @@ impl Terrain {
         self.attr(x, y).is_some_and(|a| a & (NOMOVE | NOGROUND) == 0)
     }
 
+    /// Passos a pé (8 vizinhos) de cada tile até a origem mais próxima; `u16::MAX` = sem
+    /// caminho. Origens podem ser não andáveis (safe zone com NOMOVE, ponto de chegada do M).
+    pub fn distances_from(&self, sources: &[(i32, i32)]) -> Vec<u16> {
+        let mut dist = vec![u16::MAX; SIZE * SIZE];
+        let mut q = std::collections::VecDeque::new();
+        for &(x, y) in sources {
+            if self.attr(x, y).is_some() && dist[y as usize * SIZE + x as usize] != 0 {
+                dist[y as usize * SIZE + x as usize] = 0;
+                q.push_back((x, y));
+            }
+        }
+        while let Some((x, y)) = q.pop_front() {
+            let d = dist[y as usize * SIZE + x as usize];
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if (dx, dy) == (0, 0) || !self.walkable(nx, ny) {
+                        continue;
+                    }
+                    let i = ny as usize * SIZE + nx as usize;
+                    if dist[i] == u16::MAX {
+                        dist[i] = d + 1;
+                        q.push_back((nx, ny));
+                    }
+                }
+            }
+        }
+        dist
+    }
+
+    /// Todos os tiles de safe zone do mapa.
+    pub fn safe_tiles(&self) -> Vec<(i32, i32)> {
+        (0..SIZE * SIZE)
+            .filter(|i| self.tiles[*i] & SAFEZONE != 0)
+            .map(|i| ((i % SIZE) as i32, (i / SIZE) as i32))
+            .collect()
+    }
+
     pub fn is_safezone(&self, x: i32, y: i32) -> bool {
         self.attr(x, y).is_some_and(|a| a & SAFEZONE != 0)
     }
@@ -229,5 +267,22 @@ mod tests {
         let t=grid(&["....", "...."]);
         assert!(t.segment_clear((0,0),(3,1)));
         assert!(!t.segment_clear((-1,0),(3,1)));
+    }
+}
+
+#[cfg(test)]
+mod distancia_tests {
+    use super::*;
+    #[test]
+    fn distancia_a_pe_contorna_parede_e_marca_sem_caminho() {
+        // 5x5 no canto: parede vertical em x=2 com passagem em y=4.
+        let mut tiles = vec![NOMOVE; SIZE * SIZE];
+        for y in 0..5 { for x in 0..5 { if x != 2 || y == 4 { tiles[y * SIZE + x] = 0; } } }
+        tiles[10 * SIZE + 10] = 0; // ilha sem ligação
+        let t = Terrain { world: 1, tiles };
+        let d = t.distances_from(&[(0, 0)]);
+        assert_eq!(d[0], 0);
+        assert_eq!(d[4], 8, "(4,0): desce até y=4, passa e sobe");
+        assert_eq!(d[10 * SIZE + 10], u16::MAX);
     }
 }
