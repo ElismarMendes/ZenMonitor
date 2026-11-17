@@ -2350,6 +2350,44 @@ fn main() -> anyhow::Result<()> {
                 i = fim + 1;
             }
         }
+        "avisos-vigia" => {
+            // Lê a fila de avisos a cada 2 s e mostra cada mudança, posição por posição.
+            // uso: avisos-vigia <pid> <segundos>
+            let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
+            let secs: u64 = args.get(2).and_then(|a| a.parse().ok()).unwrap_or(600);
+            const ANCORA: u64 = 0x813ddd0;
+            const PASSO: u64 = 0x108;
+            let ler = || -> Vec<String> {
+                (-8i64..=8)
+                    .map(|j| {
+                        let a = (ANCORA as i64 + j * PASSO as i64) as u64;
+                        let mut b = vec![0u8; 0x80];
+                        if !p.read(a, &mut b) {
+                            return "<sem leitura>".into();
+                        }
+                        let fim = b.iter().rposition(|&x| x != 0).map(|e| e + 1).unwrap_or(0);
+                        b[..fim].iter().map(|&x| if (32..127).contains(&x) { (x as char).to_string() } else { format!("\\x{x:02x}") }).collect()
+                    })
+                    .collect()
+            };
+            let t0 = std::time::Instant::now();
+            let mut antes: Vec<String> = Vec::new();
+            while t0.elapsed().as_secs() < secs {
+                let agora = ler();
+                if agora != antes {
+                    writeln!(out, "--- {} s", t0.elapsed().as_secs())?;
+                    for (j, t) in agora.iter().enumerate() {
+                        let mudou = antes.get(j) != Some(t);
+                        if !t.is_empty() || mudou {
+                            writeln!(out, "{}{:#x} [{:+}] {t}", if mudou { "*" } else { " " }, (ANCORA as i64 + (j as i64 - 8) * PASSO as i64) as u64, j as i64 - 8)?;
+                        }
+                    }
+                    antes = agora;
+                    std::fs::write("resultado_avisos-vigia.txt", &out)?;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        }
         "chat" | "listachat" => {
             let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
             let t = std::time::Instant::now();

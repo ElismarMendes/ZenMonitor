@@ -148,6 +148,12 @@ pub enum AgentMsg {
         id: u64,
         text: String,
     },
+    /// Aviso amarelo do servidor lido na memória (v5, 17/11). Central antiga ignora a mensagem.
+    ServerNotice {
+        char_name: String,
+        at: u64,
+        text: String,
+    },
     /// O HP do char foi a 0 (lido na memória e conferido na tela). Vai com o print da janela.
     Death {
         char_name: String,

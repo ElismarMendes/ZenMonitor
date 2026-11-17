@@ -47,6 +47,9 @@ pub struct CentralConfig {
     pub healthcheck_url: String,
     /// Não repetir o mesmo alerta no celular antes disso.
     pub notify_cooldown_s: u64,
+    /// Avisos amarelos do servidor que vão para o celular (palavras, sem diferenciar
+    /// maiúsculas). Todos os avisos ficam em logs\\avisos.log de qualquer jeito.
+    pub avisos_celular: Vec<String>,
     pub agents: Vec<AgentEntry>,
     /// Analista de falhas por IA (v5). Fica por último: é uma tabela no TOML.
     pub ia: crate::ia::IaConfig,
@@ -77,6 +80,7 @@ impl Default for CentralConfig {
             telegram_chat_id: String::new(),
             healthcheck_url: String::new(),
             notify_cooldown_s: 600,
+            avisos_celular: zen_core::avisos::default_keywords(),
             agents: vec![],
             ia: Default::default(),
         }

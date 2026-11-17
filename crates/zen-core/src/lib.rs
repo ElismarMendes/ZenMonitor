@@ -8,6 +8,7 @@ pub mod spots;
 pub mod ks;
 pub mod actions;
 pub mod alerts;
+pub mod avisos;
 pub mod chat;
 pub mod combat;
 pub mod envfile;

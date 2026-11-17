@@ -53,6 +53,8 @@ struct App {
     cfg_file: Mutex<config::CentralConfig>,
     /// Últimas mortes (sem a imagem; o print fica no banco e sai por /api/death/<id>).
     deaths: Mutex<Vec<Value>>,
+    /// Avisos do servidor já gravados (o mesmo texto chega de vários chars).
+    avisos: Mutex<zen_core::avisos::Dedupe>,
 }
 
 type Shared = Arc<App>;
@@ -130,6 +132,7 @@ fn build_app(cfg: config::CentralConfig, pool: sqlx::SqlitePool) -> anyhow::Resu
         auto_pairing: AtomicBool::new(cfg.auto_pairing),
         cfg_file: Mutex::new(cfg.clone()),
         deaths: Mutex::new(Vec::new()),
+        avisos: Mutex::new(Default::default()),
         cfg,
     }))
 }
@@ -362,6 +365,9 @@ async fn agent_session(socket: WebSocket, app: Shared, machine: String, new_toke
                                 "screenshot": format!("/api/screenshot/{machine}/{char_name}"), "ts": now()})).await;
                         }
                     }
+                    AgentMsg::ServerNotice { char_name, at, text } => {
+                        server_notice(&app, &machine, &char_name, at, &text).await;
+                    }
                     AgentMsg::Death { char_name, at, hp_before, screen_hp, png_base64 } => {
                         use base64::Engine;
                         let png = png_base64.and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok());
@@ -464,6 +470,29 @@ async fn ws_pair(
             .await;
         let _ = socket.send(Message::Close(None)).await;
     })
+}
+
+/// Aviso amarelo do servidor: grava em logs\\avisos.log (uma vez por texto, mesmo vindo de
+/// vários chars) e manda para o celular se bater com `avisos_celular`.
+async fn server_notice(app: &Shared, machine: &str, char_name: &str, at: u64, text: &str) {
+    let text = zen_core::sanitize(text, 200);
+    if !app.avisos.lock().await.accept(&text, now(), 15 * 60) {
+        return;
+    }
+    let celular = zen_core::avisos::matches(&text, &app.cfg.avisos_celular);
+    tracing::info!(aviso_servidor = %text, %machine, char = %char_name, celular);
+    let linha = format!("{}  {}  ({}/{}){}\n", ia::iso_utc(at), text, machine, char_name, if celular { "  [celular]" } else { "" });
+    let p = config::CentralConfig::dir().join("logs").join("avisos.log");
+    let _ = std::fs::create_dir_all(p.parent().unwrap_or(std::path::Path::new(".")));
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) {
+        use std::io::Write;
+        let _ = f.write_all(linha.as_bytes());
+    }
+    if celular {
+        let app2 = app.clone();
+        let msg = format!("Aviso do servidor: {text}");
+        tokio::spawn(async move { notify::send(&app2.http, &app2.cfg, &msg).await });
+    }
 }
 
 async fn persist(app: &Shared, outs: Vec<hub::HubOut>) {
