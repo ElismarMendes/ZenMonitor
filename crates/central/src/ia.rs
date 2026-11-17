@@ -242,12 +242,13 @@ pub async fn perguntar(http: &reqwest::Client, cfg: &IaConfig, pergunta: &str) -
             .post(&p.url)
             .bearer_auth(p.chave.trim())
             .timeout(Duration::from_secs(p.timeout_s.max(5)))
-            .json(&corpo)
+            .header("content-type", "application/json")
+            .body(corpo.to_string())
             .send()
             .await;
         match r {
             Ok(resp) if resp.status().is_success() => {
-                let v: serde_json::Value = match resp.json().await {
+                let v: serde_json::Value = match resp.bytes().await.map_err(|e| e.to_string()).and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string())) {
                     Ok(v) => v,
                     Err(e) => {
                         erros.push(format!("{}: resposta ilegível ({e})", p.nome));
