@@ -550,13 +550,31 @@ async fn analisar_falha(app: Shared, machine: String, message: String) {
 }
 
 /// Testa as chaves da IA sem esperar uma falha de verdade (token de admin).
-async fn api_ia_teste(State(app): State<Shared>, headers: HeaderMap) -> Response {
+#[derive(serde::Deserialize, Default)]
+struct IaTesteReq {
+    /// Opcional: testa com uma falha real (log do PC + anonimização), sem esperar nem avisar.
+    machine: Option<String>,
+    message: Option<String>,
+}
+
+async fn api_ia_teste(State(app): State<Shared>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
     if !config::ct_eq(bearer(&headers).as_bytes(), app.cfg.admin_token.as_bytes()) {
         return (StatusCode::UNAUTHORIZED, "token de admin inválido").into_response();
     }
     let Some(cfg) = ia::config_em_disco() else {
         return Json(json!({"ok": false, "erro": "seção [ia] não encontrada no central.toml"})).into_response();
     };
+    let req: IaTesteReq = serde_json::from_slice(&body).unwrap_or_default();
+    if let (Some(machine), Some(message)) = (req.machine, req.message) {
+        let (pcs, chars) = nomes_conhecidos(&app).await;
+        let log = ia::trecho_do_log(&machine, 60);
+        let (pergunta, tabela) = ia::montar_pergunta(&format!("{machine}: {message}"), &log, &pcs, &chars);
+        let r = ia::perguntar(&app.http, &cfg, &pergunta).await;
+        return Json(match r {
+            Ok((n, txt)) => json!({"ok": true, "provedor": n, "resposta": ia::desfazer(&txt, &tabela), "enviado": pergunta}),
+            Err(e) => json!({"ok": false, "erro": e, "enviado": pergunta}),
+        }).into_response();
+    }
     let pergunta = "AVISO DO BOT:\nPC_1: CHAR_1: depósito (Fortuna) falhou: a caixa do Use It não mostrou Fortuna do Imperador (2 tentativas)\n\nÚLTIMOS AVISOS E ERROS DO LOG DESSE PC:\n(teste de configuração, sem log)";
     let mut por_provedor = Vec::new();
     for p in cfg.provedores.iter().filter(|p| !p.chave.trim().is_empty()) {
