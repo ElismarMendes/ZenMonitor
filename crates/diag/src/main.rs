@@ -2319,6 +2319,37 @@ fn main() -> anyhow::Result<()> {
                 writeln!(out, "{a:#012x}  {t}")?;
             }
         }
+        "avisos" => {
+            // Mostra a região onde moram os avisos amarelos do servidor e os textos dela.
+            // uso: avisos <pid> [endereço hex, padrão 813e000] [bytes, padrão 0x3000]
+            let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
+            let addr = args.get(2).map(|a| u64::from_str_radix(a.trim_start_matches("0x"), 16)).transpose()?.unwrap_or(0x813e000);
+            let len = args.get(3).map(|a| usize::from_str_radix(a.trim_start_matches("0x"), 16)).transpose()?.unwrap_or(0x3000);
+            match p.region(addr) {
+                Some((ab, b, sz, ty, pr)) => {
+                    let tipo = match ty { 0x1000000 => "IMAGE", 0x20000 => "PRIVATE", 0x40000 => "MAPPED", _ => "?" };
+                    writeln!(out, "região de {addr:#x}: alocação {ab:#x}  base {b:#x}  tamanho {sz:#x}  tipo {tipo}  proteção {pr:#x}  (offset na alocação {:#x})", addr - ab)?;
+                    if let Some(img) = p.region(0x400000) {
+                        writeln!(out, "região 0x400000 (main.exe?): alocação {:#x} tipo {:#x}", img.0, img.3)?;
+                    }
+                }
+                None => writeln!(out, "região de {addr:#x}: não consultou")?,
+            }
+            let ini = addr.saturating_sub(len as u64 / 4);
+            let mut buf = vec![0u8; len];
+            if !p.read(ini, &mut buf) {
+                writeln!(out, "não leu {len:#x} bytes em {ini:#x}")?;
+            }
+            let mut i = 0;
+            while i < buf.len() {
+                let fim = buf[i..].iter().position(|&b| !(32..127).contains(&b)).map(|e| i + e).unwrap_or(buf.len());
+                if fim - i >= 8 {
+                    let t: String = buf[i..fim].iter().map(|&b| b as char).collect();
+                    writeln!(out, "{:#010x}  {t}", ini + i as u64)?;
+                }
+                i = fim + 1;
+            }
+        }
         "chat" | "listachat" => {
             let p = Proc::open(pid(1)?).ok_or_else(|| anyhow::anyhow!("não abriu o processo (rode como admin)"))?;
             let t = std::time::Instant::now();

@@ -36,6 +36,19 @@ impl Proc {
         }
     }
 
+    /// Informação da região que contém `addr`: (AllocationBase, BaseAddress, RegionSize, Type, Protect).
+    /// Type: 0x1000000 = IMAGE (dentro do .exe/.dll: endereço fixo em relação ao módulo),
+    /// 0x20000 = PRIVATE (heap/VirtualAlloc), 0x40000 = MAPPED.
+    pub fn region(&self, addr: u64) -> Option<(u64, u64, usize, u32, u32)> {
+        let mut mbi = MEMORY_BASIC_INFORMATION::default();
+        let got = unsafe {
+            VirtualQueryEx(self.0, Some(addr as *const c_void), &mut mbi, std::mem::size_of::<MEMORY_BASIC_INFORMATION>())
+        };
+        (got != 0).then(|| {
+            (mbi.AllocationBase as u64, mbi.BaseAddress as u64, mbi.RegionSize, mbi.Type.0, mbi.Protect.0)
+        })
+    }
+
     /// Regiões graváveis e commitadas: onde o Zen (e o chat) moram.
     pub fn writable_regions(&self) -> Vec<(u64, usize)> {
         let mut out = Vec::new();
