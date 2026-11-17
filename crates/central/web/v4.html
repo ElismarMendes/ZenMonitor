@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZenMonitor v4</title>
+<style>
+:root{--bg:#0b0f14;--bg2:#10161e;--card:#141c26;--card2:#18222e;--line:#223042;--line2:#2c3d52;
+--tx:#e6edf3;--tx2:#9fb0c2;--mute:#6b7d90;--acc:#3b9eff;--acc2:#1f6fd1;--ok:#2fd27a;--warn:#f5b73b;--bad:#f2546a;--info:#8f7bff;
+--r:10px;--mono:ui-monospace,"Cascadia Mono",Consolas,monospace}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:14px/1.4 "Segoe UI",system-ui,sans-serif}
+body{display:grid;grid-template-columns:220px 1fr;grid-template-rows:56px 1fr;height:100vh;overflow:hidden}
+header{grid-column:1/3;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid var(--line);background:var(--bg2)}
+.brand{font-weight:700;font-size:16px;letter-spacing:.04em}.brand span{color:var(--acc)}
+.conn{display:flex;align-items:center;gap:6px;color:var(--tx2);font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--bad);display:inline-block;flex:none}.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.info{background:var(--acc)}.dot.mute{background:var(--mute)}
+.hgrow{flex:1}
+input,select,button{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--line2);border-radius:8px;padding:6px 10px}
+button{cursor:pointer;transition:.15s}button:hover{border-color:var(--acc);background:var(--card2)}
+button.pri{background:var(--acc2);border-color:var(--acc)}button.pri:hover{background:var(--acc)}
+button.dang{border-color:#6a2a35}button.dang:hover{background:#3a1720;border-color:var(--bad)}
+button.sm{padding:3px 8px;font-size:12px;border-radius:6px}
+nav{border-right:1px solid var(--line);background:var(--bg2);padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:var(--tx2);text-decoration:none;cursor:pointer}
+nav a:hover{background:var(--card);color:var(--tx)}nav a.on{background:var(--card2);color:var(--tx);box-shadow:inset 3px 0 0 var(--acc)}
+nav .ic{width:18px;text-align:center}nav .sep{height:1px;background:var(--line);margin:8px 6px}
+nav .foot{margin-top:auto;font-size:11px;color:var(--mute);padding:8px 12px}
+main{overflow:auto;padding:20px 24px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;margin:22px 0 10px;color:var(--tx2);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.sub{color:var(--mute);font-size:13px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.kpi .l{color:var(--mute);font-size:12px}.kpi .v{font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}.kpi .s{font-size:12px;color:var(--tx2);margin-top:2px}
+.pcs{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+.pc{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.pc>.h{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--card2)}
+.pc>.h b{flex:1}.tag{font-size:11px;padding:2px 7px;border-radius:20px;background:var(--bg2);border:1px solid var(--line2);color:var(--tx2)}
+.tag.t{border-color:var(--info);color:var(--info)}
+.ch{display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.ch:last-child{border-bottom:0}.ch:hover{background:var(--card2)}
+.ch .n{font-weight:600}.ch .z{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.ch .m{grid-column:2/4;color:var(--mute);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{grid-column:1/4;height:4px;background:var(--bg2);border-radius:4px;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:var(--acc)}.bar i.w{background:var(--warn)}
+.st{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.st.ok{background:#11331f;color:var(--ok)}.st.warn{background:#3a2b0c;color:var(--warn)}.st.bad{background:#3a1720;color:var(--bad)}.st.info{background:#142a44;color:var(--acc)}.st.mute{background:var(--bg2);color:var(--mute)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--mute);font-weight:600;font-size:12px;background:var(--card2);cursor:pointer;user-select:none}
+tr:last-child td{border-bottom:0}tbody tr:hover{background:var(--card2)}td.num{font-family:var(--mono);text-align:right}
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.drawer{position:fixed;top:0;right:0;width:440px;max-width:100%;height:100%;background:var(--bg2);border-left:1px solid var(--line2);box-shadow:-10px 0 30px #0008;transform:translateX(100%);transition:.2s;z-index:20;display:flex;flex-direction:column}
+.drawer.open{transform:none}.drawer .dh{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}.drawer .dh b{flex:1;font-size:16px}
+.drawer .db{padding:16px 18px;overflow:auto;flex:1}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 10px;font-size:13px}.kv span:nth-child(odd){color:var(--mute)}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.sw{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}
+.tg{width:38px;height:22px;border-radius:20px;background:var(--line2);position:relative;cursor:pointer;flex:none;border:0;padding:0}
+.tg::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.15s}.tg.on{background:var(--acc)}.tg.on::after{left:19px}
+.shot{width:100%;border-radius:8px;border:1px solid var(--line);margin-top:10px;background:#000;min-height:40px}
+.toast{position:fixed;bottom:18px;right:18px;display:flex;flex-direction:column;gap:8px;z-index:30}
+.toast div{background:var(--card2);border:1px solid var(--line2);border-left:3px solid var(--acc);padding:10px 14px;border-radius:8px;max-width:420px;box-shadow:0 6px 20px #0008}
+.toast .e{border-left-color:var(--bad)}
+.feed{display:flex;flex-direction:column;gap:6px}.feed div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;display:flex;gap:10px}
+.feed .t{color:var(--mute);font-family:var(--mono);flex:none}.feed .bad{border-left:3px solid var(--bad)}.feed .ok{border-left:3px solid var(--ok)}
+.mapbox{display:grid;grid-template-columns:1fr 300px;gap:14px}.mapsv{display:flex;flex-wrap:wrap;align-items:flex-start}
+.mapsv>canvas{flex:1 1 420px;width:auto!important;max-width:calc(100vh - 150px);min-width:0}
+.mapsv>div{flex:1 1 300px;min-width:240px}
+.mapbox canvas{width:100%;height:auto;aspect-ratio:1;background:#000;border:1px solid var(--line);border-radius:var(--r);image-rendering:pixelated}
+.note{color:var(--mute);font-size:13px}
+.dgrid{display:grid;grid-template-columns:1fr 400px;gap:16px;align-items:start}@media(max-width:1300px){.dgrid{grid-template-columns:1fr}}
+.ch{position:relative}.qa{position:absolute;right:10px;top:50%;transform:translateY(-50%);display:none;gap:4px;background:var(--card2);padding:4px;border-radius:8px;border:1px solid var(--line2);box-shadow:0 4px 14px #0008;z-index:2}.ch:hover .qa{display:flex}
+.qa button{padding:2px 7px;font-size:13px;border-radius:6px;background:var(--bg2)}
+
+.logbox{background:#06090d;border:1px solid var(--line);border-radius:var(--r);font:12px/1.45 var(--mono);color:#b9c7d6;height:340px;overflow:auto;padding:10px;white-space:pre-wrap;word-break:break-word}
+.logbox .w{color:var(--warn)}.logbox .e{color:var(--bad)}
+.side{display:flex;flex-direction:column;gap:14px}.side h2{margin:0 0 8px}
+.mrow td{background:var(--bg2)}.mrow .inl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:4px 0}
+.mrow input[type=number]{width:70px}.err{color:var(--bad)}
+.empty{padding:30px;text-align:center;color:var(--mute);background:var(--card);border:1px dashed var(--line2);border-radius:var(--r)}
+.pcbtn{font-size:11px;padding:1px 7px;margin-left:6px;border-radius:9px;border:1px solid;cursor:pointer;vertical-align:middle}
+.pcbtn.on{background:#123a24;color:#7be0a6;border-color:#2b7a4f}
+.pcbtn.off{background:#4a1520;color:#ffb3bf;border-color:#a0384b}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Zen<span>Monitor</span> <span style="color:var(--mute);font-weight:400;font-size:12px">v4 · prévia</span></div>
+  <div class="conn"><i class="dot" id="live"></i><span id="livet">conectando…</span></div>
+  <div class="hgrow"></div>
+  <input id="tok" type="password" placeholder="token de admin" style="width:200px" title="Necessário para comandos. Fica só nesta aba do navegador.">
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<div class="drawer" id="drawer"><div class="dh"><b id="dtitle"></b><button class="sm" onclick="closeDrawer()">Fechar ✕</button></div><div class="db" id="dbody"></div></div>
+<div class="toast" id="toast"></div>
+<script src="/navigation.js"></script>
+<script>
+"use strict";
+// ---------------------------------------------------------------- estado
+let S = null, tab = "dash", drawerChar = null, lastMsgAt = 0, lastRenderError = "", sortKey = "machine", sortDir = 1, filter = "";
+const TABS = [
+  ["dash", "◉", "Dashboard"], ["chars", "☰", "Personagens"], ["maps", "⌖", "Mapas"],
+  ["remote", "▣", "Controle remoto"], ["alerts", "⚑", "Alertas"], ["pcs", "▤", "Computadores"], ["cfg", "⚙", "Configurações"],
+];
+TABS.splice(3,0,["navigation", "↗", "Radar e rotas"]);
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = n => n == null ? "—" : Number(n).toLocaleString("pt-BR");
+const fmtB = n => n == null ? "—" : n >= 1e9 ? (n / 1e9).toFixed(2).replace(".", ",") + " B" : n >= 1e6 ? (n / 1e6).toFixed(1).replace(".", ",") + " M" : fmt(n);
+const fmtDur = s => s == null ? "—" : s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min" : Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " min";
+const hhmm = t => t ? new Date(t * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—";
+function ss(k, v) { try { if (v === undefined) return sessionStorage.getItem(k) || ""; sessionStorage.setItem(k, v); } catch { return ""; } }
+$("tok").value = ss("zm_admin"); $("tok").onchange = e => ss("zm_admin", e.target.value.trim());
+
+function toast(msg, bad) {
+  const d = document.createElement("div"); if (bad) d.className = "e"; d.textContent = msg; $("toast").append(d);
+  setTimeout(() => d.remove(), bad ? 9000 : 5000);
+}
+const PENDING = {};
+const SEEN_HOTKEYS = new Set();
+let hotkeysInitialized = false, lastCatalogSignature = null, catalogRefreshPending = false;
+function checkPending() {
+  let hotkeyReceived = false;
+  for (const r of (S && S.results) || []) {
+    const k = (r.machine || "") + "#" + r.id, p = PENDING[k];
+    if (p) {
+      delete PENDING[k];
+      if (r.message !== "logs") toast(`${p.label} (${r.machine}): ${r.ok === false ? "NÃO FEITO — " : ""}${r.message}`, r.ok === false);
+    }
+    if (r.id === 0 && /^(?:F[12]\b|atalho ignorado:)/i.test(r.message || "")) {
+      const key = r.event_key || JSON.stringify([r.machine, r.ts, r.message, r.ok]);
+      if (!SEEN_HOTKEYS.has(key)) {
+        SEEN_HOTKEYS.add(key);
+        if (hotkeysInitialized) {
+          toast(`${r.machine}: ${r.ok === false ? "NÃO FEITO — " : ""}${r.message}`, r.ok === false);
+          hotkeyReceived = true;
+        }
+      }
+    }
+  }
+  hotkeysInitialized = true;
+  while (SEEN_HOTKEYS.size > 512) SEEN_HOTKEYS.delete(SEEN_HOTKEYS.values().next().value);
+  for (const k in PENDING) if (Date.now() - PENDING[k].t > 60000) { toast(`${PENDING[k].label}: o agente não respondeu em 1 min`, true); delete PENDING[k]; }
+  return hotkeyReceived;
+}
+function receiveState(next) {
+  const signature = JSON.stringify([next.catalog, next.spot_catalog, next.spot_directory?.catalog, next.spot_directory?.sources, next.spot_directory?.members]);
+  if (lastCatalogSignature !== null && signature !== lastCatalogSignature) catalogRefreshPending = true;
+  lastCatalogSignature = signature;
+  S = next; lastMsgAt = Date.now();
+  const hotkeyReceived = checkPending();
+  if (render(catalogRefreshPending || hotkeyReceived, true)) lastRenderError = "";
+}
+async function cmd(machine, command, label) {
+  const token = ss("zm_admin");
+  if (!token) { toast("Cole o token de admin (central.toml) no campo do topo.", true); return; }
+  try {
+    const r = await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ machine, command }) });
+    if (!r.ok) { toast(`Falhou (${r.status}): ` + await r.text(), true); return; }
+    toast((label || command.cmd) + ": enviado para " + machine);
+    // 11/11: a resposta do agente (ex.: "automação desligada neste PC") só aparecia no histórico.
+    try { const j = await r.clone().json(); if (j && j.id != null) PENDING[machine + "#" + j.id] = { label: label || command.cmd, t: Date.now() }; } catch {}
+  } catch (e) { toast("Erro de rede: " + e, true); }
+}
+
+// ---------------------------------------------------------------- classificação
+const BUSY = /andando|Lugard|baú|Fortuna:|K:|J:|teleport|recuperando|sacando|devolvendo/;
+// v4: o agente novo manda o nome do mapa (c.map); os antigos só mandam posição no mapa do spot.
+function mapOf(c) { if (c.map) return c.map; if (c.pos == null && c.map === null) return "?"; return c.spot_map || (/na Arena/.test(c.auto_status || "") ? "Arena" : "Kanturu"); }
+const WORLD_OF = { Kanturu: 38, Lorencia: 1, Arena: 7, "Lost Tower": 5, Dungeon: 2, Devias: 3, Noria: 4, Atlans: 8, Tarkan: 9, Icarus: 11, "Valley of Loren": 31, Aida: 34, "Crywolf Fortress": 35 };
+// A mesma política de posse e raio usada pelo agente, sem inferir vagas fora da leitura.
+const spotNear = (a,b,r=2) => a && b && a.world === b.world && Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y)) <= r;
+function groupNames() { return new Set([...(S.spot_directory?.members||[]),...(S.chars||[])].map(c=>c.name.toLowerCase())); }
+function catalogFor(w) {
+  const d=S.spot_directory;
+  return d ? (d.catalog||[]).filter(e=>e.spot.world===w).map(e=>({ ...e.spot,n:e.priority+1,machine:Object.entries(d.sources||{}).find(([,v])=>v.some(c=>spotNear(c.spot,e.spot,0)))?.[0]||'' })).sort((a,b)=>a.n-b.n||a.x-b.x||a.y-b.y) : (S.catalog||[]).filter(p=>(p.world||38)===w).map(p=>({...p,world:w}));
+}
+function spotState(sp) {
+  const d=S.spot_directory, chars=S.chars||[], now=S.now||Math.floor(Date.now()/1000), names=groupNames();
+  const members=(d?.members||[]).filter(m=>[m.home,m.active].some(p=>spotNear(p,sp)));
+  const leases=(d?.leases||[]).filter(l=>l.until>now && spotNear(l.spot,sp));
+  const legacy=chars.filter(c=>c.spot&&spotNear({world:WORLD_OF[c.spot_map||'Kanturu'],x:c.spot[0],y:c.spot[1]},sp));
+  const owners=[...new Map([...members,...leases,...legacy].map(m=>[m.machine+'|'+m.name,m])).values()];
+  const observers=chars.filter(c=>!c.alerts?.some(a=>a==='Offline'||a==='Dc') && WORLD_OF[mapOf(c)]===sp.world && c.pos && Math.max(Math.abs(c.pos[0]-sp.x),Math.abs(c.pos[1]-sp.y))<=12 && Array.isArray(c.nearby));
+  const foreign=[...new Set(observers.flatMap(c=>c.nearby.filter(o=>o.kind==='player'&&!names.has(o.name.toLowerCase())&&Math.max(Math.abs(o.x-sp.x),Math.abs(o.y-sp.y))<=6).map(o=>o.name)))];
+  if(owners.length)return {kind:'info',label:'Nosso · reservado',color:'#3b9eff',owners,foreign};
+  if(foreign.length)return {kind:'bad',label:'Jogador de fora',color:'#f2546a',owners,foreign};
+  return {kind:observers.length?'ok':'mute',label:observers.length?'Livre (observado)':'Sem leitura recente',color:observers.length?'#2fd27a':'#6b7d90',owners,foreign};
+}
+function spotSituation(c) {
+  const raw=c.auto_status||'', ks=raw.match(/KS(?: possível)?[\s\S]*?(?:permaneço no spot|$)/)?.[0];
+  const home=c.home_spot || (S.spot_directory?.members||[]).find(m=>m.machine===c.machine&&m.name===c.name)?.home;
+  const temporary=home && c.spot && WORLD_OF[c.spot_map]!==home.world;
+  const notes=[];
+  if(ks)notes.push({kind:/queda de/.test(ks)?'warn':'info',text:ks});
+  if(temporary){
+    const remaining=c.primary_retry_at==null?null:Math.max(0,c.primary_retry_at-(S.now||Math.floor(Date.now()/1000)));
+    notes.push({kind:'info',text:'Mapa secundário temporário · principal '+mapName(home.world)+' ('+home.x+', '+home.y+') · '+(remaining==null?'horário de reavaliação ainda não informado':remaining===0?'nova busca no principal pendente':'nova busca em '+fmtDur(remaining))});
+  }
+  if(/buscando spot/.test(raw))notes.push({kind:'info',text:'Buscando vaga no catálogo · '+raw.split(' · KS')[0]});
+  else if(/retorno após morte\/PK:/.test(raw))notes.push({kind:'info',text:'Retorno após morte/PK em andamento · '+raw});
+  else if(/morreu|morte|PK/.test(raw))notes.push({kind:'info',text:'Após morte/PK · '+raw});
+  return notes;
+}
+function situationHtml(c) {return spotSituation(c).map(n=>'<span class="note" style="display:block;max-width:480px;white-space:normal;margin-top:4px;color:var(--'+n.kind+')">'+esc(n.text)+'</span>').join('');}
+
+function dist(c) { return c.pos && c.spot ? Math.max(Math.abs(c.pos[0] - c.spot[0]), Math.abs(c.pos[1] - c.spot[1])) : null; }
+function status(c) {
+  const a = c.alerts || [], st = c.auto_status || "";
+  if (a.includes("Offline")) return ["bad", "Sem sinal"];
+  if (a.includes("Dc")) return ["bad", "Desconectado"];
+  if (a.includes("Dead")) return ["bad", "Morto"];
+  if (/retorno após morte\/PK:/.test(st)) return ["info", "Voltando após morte/PK"];
+  if (/buscando spot/.test(st)) return ["info", "Buscando vaga"];
+  if (BUSY.test(st)) return ["info", /Fortuna|Lugard|K:|J:|baú|sacando/.test(st) ? "Fortuna" : "Voltando"];
+  if (spotSituation(c).some(n=>n.text.startsWith('Mapa secundário'))) return ["info", "Mapa temporário"];
+  if (/KS(?: possível)?[ (]/.test(st)) return ["warn", "KS · mantém spot"];
+  if (a.includes("Limit2B")) return ["warn", "Zen no limite"];
+  if (a.includes("Stopped")) return ["warn", "Parado"];
+  const d = dist(c);
+  if (c.spot && !c.pos) return ["warn", "Fora do mapa"];
+  if (d != null && d > 6) return ["warn", "Fora do spot"];
+  if (c.automation === false) return ["mute", "Só monitorado"];
+  return ["ok", "Farmando"];
+}
+const stTag = c => { const [k, l] = status(c); return `<span class="st ${k}">${l}</span>`; };
+function lastStatusText(c) { return (c.auto_status || "").replace(/^spot do .*?\(\d+, \d+\)\s*·?\s*/, ""); }
+
+// ---------------------------------------------------------------- navegação
+let renderedNavTab = null;
+function renderNav() {
+  if (renderedNavTab === tab) return;
+  renderedNavTab = tab;
+  $("nav").innerHTML = TABS.map(([k, ic, l], i) => (i === 3 ? '<div class="sep"></div>' : "") + `<a class="${tab === k ? "on" : ""}" data-t="${k}"><span class="ic">${ic}</span>${l}</a>`).join("")
+    + `<div class="foot">Base estável guardada:<br>versoes\\base-v28-2026-11-10</div>`;
+  $("nav").querySelectorAll("a").forEach(a => a.onclick = () => { tab = a.dataset.t; location.hash = tab; render(); });
+}
+const VIEWS = {};
+let busyUntil = 0;
+document.addEventListener("pointerdown", e => { if (e.target.closest("main select, main input, .drawer")) busyUntil = Date.now() + 4000; else if (e.target.closest("main button")) busyUntil = Date.now() + 1500; }, true);
+function render(force, fromState = false) {
+  if (!S) return false;
+  if (tab === "navigation") {
+    renderNav();
+    if ($("main").dataset.navigation === "mounted") window.ZenNavigation.update(S);
+    else { $("main").dataset.navigation="mounted"; window.ZenNavigation.mount($("main"),S); }
+    return true;
+  }
+  delete $("main").dataset.navigation;
+  const firstPaint = !$("main").innerHTML.trim();
+  force = force || catalogRefreshPending;
+  // Uma atualização de catálogo não deve apagar uma edição ainda em foco.
+  if (!firstPaint && fromState && document.hasFocus() && document.activeElement?.matches("input, select, textarea, [contenteditable=true]") && document.activeElement.closest("main, .drawer")) return false;
+  if (!firstPaint && (fromState || !force) && Date.now() < busyUntil) return false;
+  // Não redesenha embaixo do mouse: botões rápidos e log (senão o clique ou a rolagem se perdem).
+  if (!firstPaint && (fromState || !force) && document.querySelector("main .qa:hover, main .logbox:hover, main button:hover")) return false;
+  renderNav();
+  const y = $("main").scrollTop;
+  const scrolls = ["map-side", "logbox"].map(id=>[id,$(id)?.scrollTop]);
+  $("main").innerHTML = VIEWS[tab]();
+  $("main").scrollTop = y;
+  (VIEWS[tab + "_after"] || (() => {}))();
+  for (const [id,top] of scrolls) if(top!=null && $(id)) $(id).scrollTop=top;
+  if (drawerChar && !(fromState && document.querySelector(".drawer:hover"))) renderDrawer();
+  catalogRefreshPending = false;
+  return true;
+}
+
+// ---------------------------------------------------------------- ações rápidas
+// Acesso rápido (análise de 10/11): as ações do dia a dia ficam na linha do char; as raras ou
+// perigosas (baú inteiro, reler memória, chaves) ficam na ficha (⋯).
+function act(m, n, a) {
+  const L = { return_to_spot: "Voltar ao spot", fortune: "Fortuna agora", fortune_bank: "Guardar K → J", fortune_all: "Fortuna: baú inteiro" };
+  if (a === "fortune_all" && !confirm(`Converter TODO o Zen do baú de ${n} em Fortuna? (a aba 1 guarda 1B; demora ~1 min por bilhão)`)) return;
+  cmd(m, { cmd: "run_action", char_name: n, action: a }, `${L[a] || a} (${n})`);
+}
+function saveSpot(m, n) { cmd(m, { cmd: "save_spot", char_name: n }, `Salvar spot (${n})`); }
+function qa(c) {
+  const m = esc(c.machine).replace(/'/g, "\\'"), n = esc(c.name).replace(/'/g, "\\'");
+  const b = (ic, tip, js) => `<button title="${tip}" onclick="event.stopPropagation();${js}">${ic}</button>`;
+  return `<span class="qa">${b("↩", "Voltar ao spot", `act('${m}','${n}','return_to_spot')`)}${b("✦", "Fortuna agora", `act('${m}','${n}','fortune')`)}${b("⇄", "Guardar Fortunas do K no J (aqui, sem ir à cidade)", `act('${m}','${n}','fortune_bank')`)}${b("📍", "Salvar e fixar retorno aqui (F1)", `saveSpot('${m}','${n}')`)}${b("📷", "Ver tela", `openDrawer('${m}|${n}');shot('${m}','${n}')`)}${b("⋯", "Mais ações e ajustes", `openDrawer('${m}|${n}')`)}</span>`;
+}
+
+// ---------------------------------------------------------------- Dashboard
+let logMachine = "", logAll = false, logText = "", logAt = 0, logErr = "";
+async function loadLogs(force) {
+  const token = ss("zm_admin");
+  if (!logMachine && S) logMachine = (S.machines || [])[0]?.name || "";
+  if (!token) { logErr = "Cole o token de admin no topo para ver os logs."; return; }
+  if (!force && Date.now() - logAt < 30000) return;
+  logAt = Date.now();
+  try {
+    const r = await fetch(`/api/logs/${encodeURIComponent(logMachine)}${logAll ? "?todas=1" : ""}`, { headers: { authorization: "Bearer " + token } });
+    logText = r.ok ? await r.text() : ""; logErr = r.ok ? "" : `(${r.status}) ` + await r.text();
+  } catch (e) { logErr = "erro de rede: " + e; }
+  const box = $("logbox"); if (box) { const y=box.scrollTop, tail=box.scrollHeight-box.clientHeight-y<24; box.innerHTML = logHtml(); box.scrollTop = tail ? box.scrollHeight : y; }
+}
+function logHtml() {
+  if (logErr) return `<span class="e">${esc(logErr)}</span>`;
+  if (!logText) return "carregando…";
+  return logText.split("\n").map(l => {
+    const m = l.match(/^(\d{4}-\d\d-\d\dT)(\d\d:\d\d:\d\d)[^ ]* +(\w+) +[\w:]+: (.*)$/);
+    if (!m) return esc(l);
+    const d = new Date(m[1] + m[2] + "Z"), t = isNaN(d) ? m[2] : d.toLocaleTimeString("pt-BR");
+    return `<span class="${m[3] === "ERROR" ? "e" : m[3] === "WARN" ? "w" : ""}">${t}</span> ${esc(m[4])}`;
+  }).join("\n");
+}
+setInterval(() => { if (tab === "dash") loadLogs(); }, 5000);
+VIEWS.dash = () => {
+  const ch = S.chars || [], ms = S.machines || [];
+  const on = ms.filter(m => m.connected).length, farm = ch.filter(c => status(c)[0] === "ok" || (["Mapa temporário", "KS · mantém spot"].includes(status(c)[1]) && dist(c) != null && dist(c) <= 6 && mapOf(c) === c.spot_map && c.automation !== false)).length;
+  const zh = ch.reduce((s, c) => s + (c.zen_per_hour || 0), 0), bad = ch.filter(c => status(c)[0] === "bad").length;
+  const near = ch.filter(c => c.eta_limit_s != null).sort((a, b) => a.eta_limit_s - b.eta_limit_s)[0];
+  const k = (l, v, s, col) => `<div class="kpi"><div class="l">${l}</div><div class="v" style="${col ? "color:" + col : ""}">${v}</div><div class="s">${s || ""}</div></div>`;
+  let h = `<h1>Visão geral</h1><div class="sub">Atualizado em tempo real · ${hhmm(S.now)} · passe o mouse num personagem para as ações rápidas</div><div class="kpis">`
+    + k("Computadores online", `${on}/${ms.length}`, ms.filter(m => !m.connected).map(m => m.name).join(", ") || "todos conectados", on < ms.length ? "var(--warn)" : "")
+    + k("Personagens farmando", `${farm}/${ch.length}`, bad ? `${bad} com problema` : "nenhum problema", bad ? "var(--bad)" : "var(--ok)")
+    + k("Zen por hora (total)", fmtB(Math.round(zh)), "≈ " + (zh > 0 ? (zh * 24 / 1e9).toFixed(1).replace(".", ",") + " Fortunas/dia" : "—"))
+    + k("Próxima Fortuna", near ? fmtDur(near.eta_limit_s) : "—", near ? near.name : "")
+    + `</div><div class="dgrid"><div><h2>Computadores</h2><div class="pcs">`;
+  for (const m of ms) {
+    const mc = ch.filter(c => c.machine === m.name);
+    const test = (S.test_machines || []).includes(m.name);
+    h += `<div class="pc"><div class="h"><i class="dot ${m.connected ? "ok" : ""}"></i><b>${esc(m.name)}</b>${test ? '<span class="tag t">canal teste</span>' : ""}<span class="tag">${esc((m.version || "").replace("3.0.0-alpha.1", "v"))}</span>${pcBtn(m.name)}${m.manual ? '<span class="tag" style="background:#5a1d26;color:#ffb3bf">🔒 controle manual</span>' : ""}</div>`;
+    if (!mc.length) h += `<div class="ch"><span></span><span class="m">nenhum personagem aberto</span></div>`;
+    for (const c of mc) {
+      const pct = c.zen ? Math.min(100, c.zen / 2e7) : 0;
+      h += `<div class="ch" data-c="${esc(c.machine)}|${esc(c.name)}">${stTag(c)}<span class="n">${esc(c.name)}</span>${qa(c)}<span class="z">${fmtB(c.zen)}</span>
+        <span class="m">${mapOf(c)} ${c.pos ? `(${c.pos[0]}, ${c.pos[1]})` : ""} · ${fmtB(Math.round(c.zen_per_hour || 0))}/h · ${esc(lastStatusText(c)) || "ok"}${situationHtml(c)}</span>
+        <span class="bar"><i class="${pct > 95 ? "w" : ""}" style="width:${pct}%"></i></span></div>`;
+    }
+    h += `</div>`;
+  }
+  const ev = [...(S.results || []).map(r => ({ ts: r.ts, bad: r.ok === false, txt: `<b>${esc(r.machine || "")}</b> ${esc(r.message)}` + (r.screenshot ? ` · <a href="${r.screenshot}" target="_blank">print</a>` : "") })),
+    ...(S.deaths || []).map(d => ({ ts: d.ts, bad: true, txt: `<b>${esc(d.char)}</b> morreu (${esc(d.machine)})` + (d.png ? ` · <a href="${d.png}" target="_blank">print</a>` : "") }))]
+    .sort((a, b) => b.ts - a.ts).slice(0, 12);
+  h += `</div></div><div class="side"><div><h2>Eventos ao vivo</h2><div class="feed">${ev.map(e => `<div class="${e.bad ? "bad" : "ok"}"><span class="t">${hhmm(e.ts)}</span><span>${e.txt}</span></div>`).join("") || '<div class="note">nada ainda</div>'}</div></div>
+    <div><h2>Log do agente</h2><div class="tools"><select id="logm">${ms.map(m => `<option ${m.name === logMachine ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>
+      <label class="note"><input type="checkbox" id="logall" ${logAll ? "checked" : ""}> tudo (não só avisos)</label><button class="sm" id="logr">atualizar</button></div>
+      <div class="logbox" id="logbox">${logHtml()}</div><div class="note" style="margin-top:4px">O central recolhe os logs de cada PC a cada 2 min.</div></div></div></div>`;
+  return h;
+};
+VIEWS.dash_after = () => {
+  document.querySelectorAll(".ch[data-c]").forEach(e => e.onclick = () => openDrawer(e.dataset.c));
+  const sel = $("logm"); if (!sel) return;
+  if (!logMachine) { logMachine = sel.value; loadLogs(true); }
+  sel.onchange = () => { logMachine = sel.value; logText = ""; loadLogs(true); };
+  $("logall").onchange = e => { logAll = e.target.checked; loadLogs(true); };
+  $("logr").onclick = () => loadLogs(true);
+  const box = $("logbox"); box.scrollTop = box.scrollHeight;
+};
+
+// ---------------------------------------------------------------- Personagens
+VIEWS.chars = () => {
+  const cols = [["st", "Status"], ["name", "Personagem"], ["machine", "Computador"], ["map", "Mapa"], ["pos", "Posição"], ["spot", "Spot"], ["zen", "Zen"], ["zh", "Zen/h"], ["eta", "2B em"], ["hp", "Vida"], ["auto", "Automação"]];
+  const val = (c, k) => ({ st: status(c)[1], map: mapOf(c), pos: c.pos ? c.pos.join(",") : "", spot: c.spot ? c.spot.join(",") : "", zh: c.zen_per_hour || 0, eta: c.eta_limit_s ?? 1e12, auto: c.automation ? 1 : 0 })[k] ?? c[k] ?? "";
+  let rows = (S.chars || []).filter(c => !filter || (c.name + c.machine).toLowerCase().includes(filter.toLowerCase()));
+  rows.sort((a, b) => { const x = val(a, sortKey), y = val(b, sortKey); return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  return `<h1>Personagens</h1><div class="sub">Clique numa linha para ver detalhes e agir.</div>
+  <div class="tools"><input id="flt" placeholder="filtrar por nome ou computador" value="${esc(filter)}" style="width:280px"></div>
+  <table><thead><tr>${cols.map(([k, l]) => `<th data-k="${k}">${l}${sortKey === k ? (sortDir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead><tbody>
+  ${rows.map(c => `<tr data-c="${esc(c.machine)}|${esc(c.name)}" style="cursor:pointer"><td>${stTag(c)}${situationHtml(c)}</td><td><b>${esc(c.name)}</b> <span class="note">${c.level ?? ""}/${c.resets ?? ""}</span></td><td>${esc(c.machine)} ${pcBtn(c.machine)}</td><td>${mapOf(c)}</td><td class="num">${c.pos ? c.pos.join(", ") : "—"}</td><td class="num">${c.spot ? c.spot.join(", ") : "—"}${c.spot_locked ? " 🔒" : ""}</td><td class="num">${fmt(c.zen)}</td><td class="num">${fmtB(Math.round(c.zen_per_hour || 0))}</td><td class="num">${fmtDur(c.eta_limit_s)}</td><td class="num">${fmt(c.hp)}${ravenTag(c)}</td><td>${pcAuto(c) === false ? '<span style="color:#ff8c9b">PC desligado</span>' : c.automation ? "ligada" : "desligada"}</td></tr>`).join("") || `<tr><td colspan="11" class="note">nenhum personagem</td></tr>`}
+  </tbody></table>`;
+};
+VIEWS.chars_after = () => {
+  document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => { if (sortKey === th.dataset.k) sortDir = -sortDir; else { sortKey = th.dataset.k; sortDir = 1; } render(true); });
+  const f = $("flt"); f.oninput = () => { filter = f.value; const start=f.selectionStart,end=f.selectionEnd; render(true); const next=$("flt"); next.focus(); next.setSelectionRange(start,end); };
+  document.querySelectorAll("tr[data-c]").forEach(e => e.onclick = () => openDrawer(e.dataset.c));
+};
+
+// ---------------------------------------------------------------- gaveta do personagem
+// Botão rápido ao lado do nome do PC (dono, 11/11 10:51): desliga = para tudo naquele PC na
+// hora (inclusive uma volta em andamento); liga = o agente confere cada char e devolve ao spot.
+function pcBtn(machine) {
+  const m = ((S && S.machines) || []).find(m => m.name === machine);
+  if (!m) return "";
+  const on = !!m.automation, M = esc(machine);
+  const act = on ? `if(confirm('Parar a automação de ${M}? Os chars ficam onde estão até você religar.'))cmd('${M}',{cmd:'set_config',automation_enabled:false},'automação de ${M} PARADA')`
+                 : `cmd('${M}',{cmd:'set_config',automation_enabled:true},'automação de ${M} LIGADA: conferindo e voltando ao spot')`;
+  return `<button class="pcbtn ${on ? "on" : "off"}" title="${on ? "Automação ligada neste PC. Clique para PARAR (para mexer no computador)" : "Automação PARADA neste PC. Clique para ligar e devolver os chars ao spot"}" onclick="event.stopPropagation();${act}">${on ? "● auto" : "■ parado"}</button>`;
+}
+// Automação do COMPUTADOR (pânico remoto). Desligada, nenhum char dele age, mesmo "ligado".
+function pcAuto(c) { const m = ((S && S.machines) || []).find(m => m.name === c.machine); return m ? !!m.automation : null; }
+// Vida do Dark Raven (barra no topo da tela do jogo); vermelho em 25% ou menos.
+function ravenTag(c) { if (c.pet_hp == null) return ""; const low = c.pet_hp <= 25; return ` <span class="note" style="${low ? "color:#ff8c9b;font-weight:bold" : ""}" title="vida do Dark Raven">🐦${c.pet_hp}%</span>`; }
+function findChar(key) { const [m, n] = key.split("|"); return (S.chars || []).find(c => c.machine === m && c.name === n); }
+function openDrawer(key) { drawerChar = key; $("drawer").classList.add("open"); renderDrawer(); }
+function closeDrawer() { drawerChar = null; $("drawer").classList.remove("open"); }
+let shotUrl = {};
+function renderDrawer() {
+  const c = findChar(drawerChar); if (!c) return;
+  $("dtitle").innerHTML = `${esc(c.name)} ${stTag(c)} <span class="note" style="font-size:12px">${esc(c.machine)}</span> ${pcBtn(c.machine)}`;
+  const M = c.machine, N = c.name, ra = a => `cmd('${esc(M)}',{cmd:'run_action',char_name:'${esc(N)}',action:'${a}'},'${a}')`;
+  const tog = (on, c2, label) => `<div class="sw"><span>${label}</span><button class="tg ${on ? "on" : ""}" onclick="${c2}"></button></div>`;
+  const set = (cmdName, en) => `cmd('${esc(M)}',{cmd:'${cmdName}',char_name:'${esc(N)}',${cmdName === "set_spot_lock" ? "locked" : "enabled"}:${en}})`;
+  const drawerScroll = $("dbody").scrollTop;
+  $("dbody").innerHTML = `${situationHtml(c)}<div class="note">F1 salva e fixa o retorno, incluindo no catálogo. F2 apenas cadastra a posição atual no catálogo do mapa.</div><div class="kv">
+    <span>Computador</span><span>${esc(M)}</span><span>Nível / resets</span><span>${c.level ?? "—"} / ${c.resets ?? "—"}</span>
+    <span>Mapa</span><span>${mapOf(c)} ${c.pos ? `(${c.pos.join(", ")})` : ""}</span><span>Spot</span><span>${c.spot ? c.spot.join(", ") : "não salvo"} ${c.spot_locked ? "🔒" : ""}</span>
+    <span>Zen</span><span>${fmt(c.zen)}</span><span>Zen por hora</span><span>${fmt(Math.round(c.zen_per_hour || 0))}</span>
+    <span>2B em</span><span>${fmtDur(c.eta_limit_s)}</span><span>Vida</span><span>${fmt(c.hp)}</span><span>Dark Raven</span><span>${c.pet_hp == null ? '<span class="note">sem leitura (barra não visível)</span>' : ravenTag(c)}</span>
+    <span>Última morte</span><span>${hhmm(c.last_death_at)}</span><span>Situação</span><span>${esc(c.auto_status || "—")}</span></div>
+    <h2>Ações</h2><div class="btns">
+      <button class="pri" onclick="${ra("return_to_spot")}">Voltar ao spot</button>
+      <button onclick="${ra("fortune")}">Fortuna agora</button>
+      <button onclick="${ra("fortune_bank")}">Guardar K → J</button>
+      <button onclick="${ra("restore_raven")}">Restaurar Dark Raven${c.pet_hp == null ? "" : ` (${c.pet_hp}%)`}</button>
+      <button onclick="if(confirm('Refinar TODAS as Gemstones do inventário de ${esc(N)} na Elpis? O char precisa estar ao lado da Elpis (Refinery Tower). Funciona mesmo com a automação do PC desligada.'))${ra("refine_gemstones")}" title="Separa as pilhas (R), refina uma por vez e tira as Harmonies da máquina para o inventário">Elpis: Gemstone → Harmony</button>
+      <button class="dang" onclick="if(confirm('Converter TODO o Zen do baú de ${esc(N)}? (a aba 1 guarda 1B)'))${ra("fortune_all")}">Fortuna: baú inteiro</button>
+      <button onclick="cmd('${esc(M)}',{cmd:'save_spot',char_name:'${esc(N)}'},'salvar spot')" title="Equivale ao F1: fixa o retorno e inclui no catálogo">Salvar e fixar retorno</button>
+      <button onclick="shot('${esc(M)}','${esc(N)}')">Ver tela</button>
+      <button onclick="cmd('${esc(M)}',{cmd:'relock_ram',char_name:'${esc(N)}'},'reler memória')">Reler memória</button></div>
+    <h2>Automação deste personagem</h2>
+    ${pcAuto(c) === false ? `<div class="kpi" style="border-color:#7a2a35;margin-bottom:8px"><div class="l" style="color:#ff8c9b">A automação do computador ${esc(M)} está DESLIGADA: nenhum char dele volta ao spot nem faz Fortuna, mesmo com a chave abaixo ligada.</div><button class="pri" style="margin-top:6px" onclick="cmd('${esc(M)}',{cmd:'set_config',automation_enabled:true},'automação do PC ligada')">Ligar a automação deste computador</button></div>` : ""}
+    ${tog(c.automation, set("set_char_automation", !c.automation), "Automação (teclado/mouse)")}
+    ${tog(c.auto_deposit, set("set_auto_deposit", !c.auto_deposit), "Fortuna automática em 1,99B")}
+    ${tog(c.return_on_death, set("set_return_on_death", !c.return_on_death), "Voltar ao spot depois de morrer")}
+    ${tog(c.spot_locked, set("set_spot_lock", !c.spot_locked), "Travar no spot")}
+    ${c.skill_key == null ? "" : `<div class="kpi" style="margin-top:8px"><div class="l">Skill para limpar mobs no caminho</div>
+      <select style="margin-top:6px" onchange="cmd('${esc(M)}',{cmd:'set_skill_key',char_name:'${esc(N)}',key:+this.value},'skill de limpar')">
+        <option value="0" ${!c.skill_key ? "selected" : ""}>nenhuma (usa o helper)</option>
+        ${[1,2,3,4,5,6,7,8,9].map(k => `<option value="${k}" ${c.skill_key === k ? "selected" : ""}>tecla ${k}</option>`).join("")}
+      </select><div class="s">Travou no meio dos mobs andando: aperta a tecla e segura o botão direito em cima do char (~2,5 s). Use a tecla da skill de área (ex.: Ice Storm).</div></div>`}
+    <img class="shot" id="shot" ${shotUrl[drawerChar] ? `src="${shotUrl[drawerChar]}"` : 'style="display:none"'}>`;
+  $("dbody").scrollTop = drawerScroll;
+}
+async function shot(m, n) {
+  await cmd(m, { cmd: "screenshot", char_name: n }, "print");
+  setTimeout(() => { shotUrl[m + "|" + n] = `/api/screenshot/${encodeURIComponent(m)}/${encodeURIComponent(n)}?t=${Date.now()}`; renderDrawer(); }, 4000);
+}
+
+// ---------------------------------------------------------------- Mapas e spots (Etapa 3)
+// Terrenos lidos do próprio cliente do jogo (Data\WorldN). "Ir até" só nos mapas validados
+// (Kanturu, Lorencia, Arena): M do jogo + caminhada pelo terreno, conferindo a posição na tela.
+let MAPS = null, world = 38, terrs = {}, terrImgs = {}, pick = null, POINTS = [], pickChar = "";
+// Desenho do mapa e ícones do próprio jogo (Data\WorldN\mini_map.OZT, Data\Interface).
+let mapZoom = (() => { try { return +(localStorage.getItem("zm_zoom") || 2); } catch { return 2; } })();
+// Visão do mapa: zoom centrado no spot (ou posição) do char escolhido; 1 = mapa inteiro.
+function mapView() {
+  const z = Math.max(1, mapZoom || 1), W = 256 * S3;
+  if (z === 1) return { z: 1, ox: 0, oy: 0 };
+  const sel = (pickChar || "").split("|"), c = (S.chars || []).find(c => c.machine === sel[0] && c.name === sel[1]);
+  let ctr = [128, 128];
+  if (c && c.spot && WORLD_OF[c.spot_map || "Kanturu"] === world) ctr = c.spot;
+  else if (c && c.pos && WORLD_OF[mapOf(c)] === world) ctr = c.pos;
+  else { const h = (S.chars || []).find(c => c.spot && WORLD_OF[c.spot_map || "Kanturu"] === world); if (h) ctr = h.spot; }
+  const span = W / z, clamp = v => Math.max(0, Math.min(W - span, v));
+  return { z, ox: clamp(ctr[0] * S3 - span / 2), oy: clamp(ctr[1] * S3 - span / 2) };
+}
+let mmImgs = {}, mapLayer = (() => { try { return localStorage.getItem("zm_layer") || "jogo"; } catch { return "jogo"; } })();
+const ICONS = {};
+for (const n of ["mini_map_ui_cha", "mini_map_ui_npc", "mini_map_ui_portal", "mini_map_ui_party", "Hero"]) { const im = new Image(); im.onload = () => { if (tab === "maps") drawMap(); }; im.src = "/api/mapicon/" + n; ICONS[n] = im; }
+function loadMinimap(w) {
+  if (mmImgs[w] !== undefined) return;
+  const im = new Image(); mmImgs[w] = null;
+  im.onload = () => { mmImgs[w] = im; if (tab === "maps") drawMap(); };
+  im.onerror = () => { mmImgs[w] = false; };
+  im.src = "/api/minimap/" + w;
+}
+const iconOk = n => ICONS[n] && ICONS[n].complete && ICONS[n].naturalWidth > 0;
+const S3 = 3;
+function recentDest(add) {
+  let r = []; try { r = JSON.parse(localStorage.getItem("zm_recent") || "[]"); } catch {}
+  if (add) { r = [add, ...r.filter(x => !(x.world === add.world && x.x === add.x && x.y === add.y))].slice(0, 8); try { localStorage.setItem("zm_recent", JSON.stringify(r)); } catch {} }
+  return r;
+}
+async function loadMaps() {
+  try { MAPS = await (await fetch("/api/maps")).json(); } catch { MAPS = [{ world: 38, name: "Kanturu", validated: true, terrain: true }]; }
+  try { POINTS = await (await fetch("/api/points")).json(); } catch { POINTS = []; }
+  if (tab === "maps") render(true);
+}
+function loadTerrain(w) {
+  if (terrs[w] !== undefined) return;
+  terrs[w] = null;
+  fetch("/api/terrain/" + w).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(t => { terrs[w] = t; if (tab === "maps") drawMap(); }).catch(e => { terrs[w] = { err: String(e) }; if (tab === "maps") render(true); });
+}
+function tileKind(x, y) { const t = terrs[world]; if (!t || !t.codes) return "?"; const v = atob(t.codes).charCodeAt(y * t.w + x); return v === 1 ? "bloqueado" : v === 2 ? "zona segura" : "andável"; }
+const mapName = w => (MAPS || []).find(m => m.world === w)?.name || "World " + w;
+const isValid = w => !!(MAPS || []).find(m => m.world === w && m.validated);
+const charsOn = w => (S.chars || []).filter(c => WORLD_OF[mapOf(c)] === w);
+VIEWS.maps = () => {
+  if (!MAPS) { loadMaps(); return `<h1>Mapas</h1><div class="note">carregando…</div>`; }
+  loadTerrain(world); loadMinimap(world);
+  const ch = S.chars || [], here = charsOn(world);
+  const cat = catalogFor(world);
+  const pts = POINTS.filter(p => p.world === world);
+  const charOpts = sel => ch.map(c => `<option value="${esc(c.machine)}|${esc(c.name)}" ${sel === c.machine + "|" + c.name ? "selected" : ""}>${esc(c.name)} · ${esc(mapOf(c))}${c.pos ? " " + c.pos.join(",") : ""} (${esc(c.machine)})</option>`).join("");
+  const valid = isValid(world);
+  let side = `<div class="kpi"><div class="l">Personagem para mandar</div><select id="pickc" style="width:100%;margin-top:6px">${charOpts(pickChar)}</select></div>`;
+  if (pick) {
+    side += `<div class="kpi" style="margin-top:10px"><div class="l">Tile escolhido · ${esc(mapName(world))}</div><div class="v">${pick[0]}, ${pick[1]}</div><div class="s">${tileKind(pick[0], pick[1])}</div>
+      <div class="btns">${valid ? `<button class="pri" onclick="goPick(false)">Ir até aqui</button>${world !== 1 ? `<button onclick="goPick(true)">Ir e fazer spot</button>` : ""}` : `<span class="err">mapa ainda não calibrado: "ir até" bloqueado</span>`}
+      <button onclick="savePoint()">Salvar ponto</button><button onclick="pick=null;render(true)">Limpar</button></div>
+      <div class="note">"Ir até": o char fica lá e não volta sozinho até "Voltar ao spot". "Ir e fazer spot": grava como spot dele, em qualquer mapa de farm.</div></div>`;
+  } else side += `<div class="note" style="margin:10px 0">Clique no mapa para escolher um tile.</div>`;
+  side += `<h2>Pontos salvos</h2><table><tbody>${pts.map(p => `<tr><td><span class="tag">${esc(p.kind)}</span> ${esc(p.name)}</td><td class="num">${p.x},${p.y}</td><td>${valid ? `<button class="sm" onclick="goPoint(${p.id})">ir</button>` : ""} <button class="sm dang" onclick="delPoint(${p.id})">✕</button></td></tr>`).join("") || '<tr><td class="note">nenhum ponto neste mapa</td></tr>'}</tbody></table>`;
+  const rec = recentDest().filter(r => r.world === world);
+  if (rec.length) side += `<h2>Últimos destinos</h2><div class="btns">${rec.map(r => `<button class="sm" onclick="pick=[${r.x},${r.y}];render(true)">${r.x},${r.y}</button>`).join("")}</div>`;
+  side += `<h2>Personagens neste mapa</h2><table><tbody>${here.map(c => `<tr><td>${stTag(c)} ${esc(c.name)}${c.nearby ? ` <span class="note" title="mobs a até 5 tiles (memória do jogo)">· ${c.nearby.filter(o => o.kind === "monster" && Math.max(Math.abs(o.x - (c.pos || [0])[0]), Math.abs(o.y - (c.pos || [0, 0])[1])) <= 5).length} mob(s)</span>` : ""}</td><td class="num">${c.pos ? c.pos.join(",") : "—"}</td><td class="num">${c.spot && WORLD_OF[c.spot_map || "Kanturu"] === world ? "spot " + c.spot.join(",") + (c.spot_locked ? " 🔒" : "") : ""}</td></tr>`).join("") || '<tr><td class="note">ninguém aqui agora</td></tr>'}</tbody></table>`;
+  side += '<h2>Catálogo compartilhado</h2><div class="note">F1 salva e fixa o retorno do personagem, incluindo no catálogo. F2 só cadastra a posição atual no catálogo do mapa. Até 2 tiles atualiza a mesma entrada. Prioridade menor é consultada primeiro.</div><div class="note" style="margin:8px 0">🟢 Livre observado · 🔵 Nosso / reservado · 🔴 Jogador de fora · ⚪ Sem leitura recente</div><div class="note">Ao chegar em uma vaga ocupada, busca o próximo spot; sem vagas, usa outro mapa temporariamente. KS no spot próprio não provoca fuga. A ausência de leitura não confirma vaga.</div>';
+  side += '<table><thead><tr><th>Prioridade / ID</th><th>Posição</th><th>Ocupação</th><th>Ações</th></tr></thead><tbody>'+cat.map(sp=>{
+    const state=spotState(sp), owner=state.owners[0], live=owner&&(S.chars||[]).find(c=>c.machine===owner.machine&&c.name===owner.name);
+    const names=state.owners.map(m=>esc(m.name)+' · '+esc(m.machine)).join('<br>');
+    const action=owner ? live ? `<button class="sm" onclick="cmd('${esc(live.machine)}',{cmd:'set_spot_lock',char_name:'${esc(live.name)}',locked:${!live.spot_locked}},'trava do spot')">${live.spot_locked?'destravar':'travar'}</button>` : 'reservado' : sp.machine ? `<button class="sm dang" onclick="if(confirm('Excluir spot do catálogo?'))cmd('${esc(sp.machine)}',{cmd:'delete_spot',x:${sp.x},y:${sp.y},world:${world}},'excluir spot')">excluir</button>` : '';
+    return '<tr><td>'+sp.n+'<div class="note">'+world+':'+sp.x+':'+sp.y+'</div></td><td class="num">'+sp.x+', '+sp.y+'</td><td><span class="st '+state.kind+'">'+state.label+'</span><div class="note">'+names+(state.foreign.length?'<br>Presença externa: '+state.foreign.map(esc).join(', '):'')+'</div></td><td>'+action+'</td></tr>';
+  }).join('')+'</tbody></table>';
+  const t = terrs[world];
+  return `<h1>Mapas</h1><div class="sub">Terreno lido do cliente do jogo (verde = andável, azul = zona segura). Todos os mapas do M foram conferidos no jogo (11/11) e aceitam "ir até". F1 fixa o retorno; F2 cataloga sem trocar o retorno.</div>
+  <div class="tools"><select id="mapsel">${MAPS.map(m => `<option value="${m.world}" ${m.world === world ? "selected" : ""} ${m.terrain ? "" : "disabled"}>${esc(m.name)}${m.validated ? "" : " (não calibrado)"}${m.terrain ? "" : " — sem arquivo"}</option>`).join("")}</select>
+  <span class="note">${here.length} personagem(ns) aqui</span>
+  <select id="layer"><option value="jogo" ${mapLayer === "jogo" ? "selected" : ""}>desenho do jogo</option><option value="terreno" ${mapLayer === "terreno" ? "selected" : ""}>terreno (andável / bloqueado)</option></select>
+  <select id="zoom" title="Zoom centrado no spot do personagem escolhido ao lado">${[1, 2, 3].map(z => `<option value="${z}" ${mapZoom === z ? "selected" : ""}>${z === 1 ? "mapa inteiro" : "spot " + z + "x"}</option>`).join("")}</select></div>
+  ${t && t.err ? `<div class="err">Não consegui ler o terreno: ${esc(t.err)}</div>` : ""}
+  <div class="mapbox mapsv"><canvas id="cv" width="768" height="768" style="cursor:crosshair"></canvas><div style="max-height:calc(100vh - 150px);overflow:auto;padding-right:4px" id="map-side">${side}</div></div>`;
+};
+VIEWS.maps_after = () => {
+  if (!MAPS) return;
+  drawMap();
+  const cv = $("cv");
+  cv.onclick = ev => { const r = cv.getBoundingClientRect(), V = mapView(); pick = [Math.floor(((ev.clientX - r.left) * cv.width / r.width / V.z + V.ox) / S3), Math.floor(((ev.clientY - r.top) * cv.height / r.height / V.z + V.oy) / S3)]; render(true); };
+  $("zoom").onchange = e => { mapZoom = +e.target.value; try { localStorage.setItem("zm_zoom", mapZoom); } catch {} drawMap(); };
+  cv.onmousemove = () => { busyUntil = Date.now() + 1500; };
+  $("mapsel").onchange = e => { world = +e.target.value; pick = null; render(true); };
+  $("layer").onchange = e => { mapLayer = e.target.value; try { localStorage.setItem("zm_layer", mapLayer); } catch {} drawMap(); };
+  const pc = $("pickc"); if (pc) { if (!pickChar) pickChar = pc.value; pc.onchange = () => { pickChar = pc.value; drawMap(); }; }
+};
+function goTo(x, y, makeSpot) {
+  const [m, n] = (pickChar || $("pickc").value).split("|");
+  if (!isValid(world)) { toast("Mapa ainda não calibrado.", true); return; }
+  if (makeSpot && !confirm(`Gravar (${x}, ${y}) em ${mapName(world)} como o novo spot de ${n}?`)) return;
+  recentDest({ world, x, y });
+  cmd(m, { cmd: "go_to", char_name: n, world, x, y, make_spot: !!makeSpot }, `${n} → ${mapName(world)} (${x}, ${y})`);
+}
+const goPick = ms => goTo(pick[0], pick[1], ms);
+function goPoint(id) { const p = POINTS.find(p => p.id === id); if (p) goTo(p.x, p.y, false); }
+async function savePoint() {
+  const name = prompt("Nome do ponto:", `${mapName(world)} ${pick[0]},${pick[1]}`); if (!name) return;
+  const kind = (prompt("Tipo: favorito, farm ou destino", "farm") || "favorito").trim();
+  const token = ss("zm_admin"); if (!token) { toast("Cole o token de admin.", true); return; }
+  const r = await fetch("/api/points", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ name, world, x: pick[0], y: pick[1], kind }) });
+  if (r.ok) { toast("ponto salvo"); await loadMaps(); } else toast("falhou: " + r.status + " " + await r.text(), true);
+}
+async function delPoint(id) {
+  if (!confirm("Excluir este ponto?")) return;
+  const token = ss("zm_admin"); if (!token) { toast("Cole o token de admin.", true); return; }
+  const r = await fetch("/api/points/" + id, { method: "DELETE", headers: { authorization: "Bearer " + token } });
+  if (r.ok) { await loadMaps(); } else toast("falhou: " + r.status, true);
+}
+function drawMap() {
+  const cv = $("cv"), t = terrs[world]; if (!cv) return;
+  const g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = "#000"; g.fillRect(0, 0, cv.width, cv.height);
+  const V = mapView(); g.setTransform(V.z, 0, 0, V.z, -V.ox * V.z, -V.oy * V.z);
+  if (!t || !t.codes) { g.fillStyle = "#6b7d90"; g.font = `${(16 / Math.sqrt(V.z)).toFixed(1)}px Segoe UI`; g.fillText(t && t.err ? "terreno indisponível" : "carregando o terreno…", 20, 30); return; }
+  if (!terrImgs[world]) {
+    const bin = atob(t.codes), img = new ImageData(t.w, t.h);
+    for (let i = 0; i < bin.length; i++) { const v = bin.charCodeAt(i), col = v === 1 ? [16, 20, 26] : v === 2 ? [40, 70, 130] : [38, 78, 52]; img.data.set([...col, 255], i * 4); }
+    const c = document.createElement("canvas"); c.width = t.w; c.height = t.h; c.getContext("2d").putImageData(img, 0, 0); terrImgs[world] = c;
+  }
+  g.imageSmoothingEnabled = false;
+  const mm = mmImgs[world];
+  if (mapLayer === "jogo" && mm) {
+    g.drawImage(mm, 0, 0, t.w * S3, t.h * S3);
+    // zona segura por cima, bem leve, para saber onde o helper não liga
+    g.globalAlpha = 0.18; g.drawImage(terrImgs[world], 0, 0, t.w * S3, t.h * S3); g.globalAlpha = 1;
+  } else g.drawImage(terrImgs[world], 0, 0, t.w * S3, t.h * S3);
+  for (const sp of catalogFor(world)) { const state=spotState(sp); g.strokeStyle=state.color; g.lineWidth=3; g.strokeRect(sp.x*S3-8,sp.y*S3-8,16,16); g.fillStyle=state.color; g.font="12px Segoe UI"; g.fillText("#"+sp.n,sp.x*S3+10,sp.y*S3+12); }
+  for (const p of POINTS.filter(p => p.world === world)) {
+    if (iconOk("mini_map_ui_portal")) g.drawImage(ICONS.mini_map_ui_portal, p.x * S3 - 9, p.y * S3 - 9, 18, 18);
+    else { g.fillStyle = p.kind === "farm" ? "#f5b73b" : "#8f7bff"; g.beginPath(); g.moveTo(p.x * S3, p.y * S3 - 7); g.lineTo(p.x * S3 + 6, p.y * S3 + 5); g.lineTo(p.x * S3 - 6, p.y * S3 + 5); g.fill(); }
+    g.fillStyle = p.kind === "farm" ? "#f5b73b" : "#c9bfff"; g.font = `${(11 / Math.sqrt(V.z)).toFixed(1)}px Segoe UI`; g.fillText(p.name, p.x * S3 + 10, p.y * S3 + 12);
+  }
+  // Mobs, NPCs e outros jogadores lidos da memória do jogo (cada char vê os de perto dele).
+  const ours = groupNames(), seenObj = new Set();
+  for (const c of S.chars || []) {
+    if (!c.nearby || WORLD_OF[mapOf(c)] !== world) continue;
+    for (const o of c.nearby) {
+      const key = o.kind + o.name + o.x + "," + o.y; if (seenObj.has(key) || ours.has(o.name.toLowerCase())) continue; seenObj.add(key);
+      const ox = o.x * S3 + 1, oy = o.y * S3 + 1;
+      if (o.kind === "monster") { g.fillStyle = "#ff3b3b"; g.beginPath(); g.arc(ox, oy, 3, 0, 7); g.fill(); }
+      else if (o.kind === "npc") { if (iconOk("mini_map_ui_npc")) g.drawImage(ICONS.mini_map_ui_npc, ox - 7, oy - 7, 14, 14); else { g.fillStyle = "#2fd27a"; g.fillRect(ox - 4, oy - 4, 8, 8); } g.fillStyle = "#bfffd0"; g.font = `${(10 / Math.sqrt(V.z)).toFixed(1)}px Segoe UI`; g.fillText(o.name, ox + 8, oy + 4); }
+      else { if (iconOk("mini_map_ui_party")) g.drawImage(ICONS.mini_map_ui_party, ox - 7, oy - 7, 14, 14); g.fillStyle = "#9fe8ff"; g.font = `${(10 / Math.sqrt(V.z)).toFixed(1)}px Segoe UI`; g.fillText(o.name, ox + 8, oy + 4); }
+    }
+  }
+  for (const c of S.chars || []) {
+    const col = { ok: "#2fd27a", warn: "#f5b73b", bad: "#f2546a", info: "#3b9eff", mute: "#6b7d90" }[status(c)[0]];
+    if (c.spot && WORLD_OF[c.spot_map || "Kanturu"] === world) { g.strokeStyle = col; g.lineWidth = 2; g.strokeRect(c.spot[0] * S3 - 6, c.spot[1] * S3 - 6, 12, 12); }
+    if (c.pos && WORLD_OF[mapOf(c)] === world) {
+      const cx = c.pos[0] * S3, cy = c.pos[1] * S3;
+      g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, 11, 0, 7); g.stroke();
+      if (iconOk("mini_map_ui_cha")) g.drawImage(ICONS.mini_map_ui_cha, cx - 8, cy - 8, 16, 16); else { g.fillStyle = col; g.beginPath(); g.arc(cx, cy, 6, 0, 7); g.fill(); }
+      g.fillStyle = "#000"; g.font = `bold ${(13 / Math.sqrt(V.z)).toFixed(1)}px Segoe UI`; g.fillText(c.name, cx + 14, cy - 7); g.fillStyle = "#fff"; g.fillText(c.name, cx + 13, cy - 8);
+    }
+  }
+  if (pick) { g.strokeStyle = "#ffd23f"; g.lineWidth = 2; g.beginPath(); g.arc(pick[0] * S3 + 1, pick[1] * S3 + 1, 9, 0, 7); g.stroke(); }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// ---------------------------------------------------------------- Controle remoto (Etapa 4)
+VIEWS.remote = () => `<h1>Controle remoto</h1><div class="sub">Transmissão e controle só da janela do MU de cada personagem (Etapa 4). Enquanto isso, use "Ver tela" na ficha do personagem.</div>
+  <div class="empty">Em construção. Limitações já conhecidas: um personagem controlado por computador de cada vez; a janela vem para a frente no PC remoto durante o controle; a automação daquele PC pausa enquanto você controla.</div>`;
+
+// ---------------------------------------------------------------- Alertas
+VIEWS.alerts = () => {
+  const res = S.results || [], deaths = S.deaths || [], pks = S.pks || [];
+  return `<h1>Alertas e eventos</h1><div class="sub">Resultados das automações, mortes e PKs recentes.</div>
+  <h2>Automação</h2><div class="feed">${res.map(r => `<div class="${r.ok === false ? "bad" : "ok"}"><span class="t">${hhmm(r.ts)}</span><span><b>${esc(r.machine || "")}</b> ${esc(r.message)}${r.screenshot ? ` · <a href="${r.screenshot}" target="_blank">print</a>` : ""}</span></div>`).join("") || '<div class="note">nada ainda</div>'}</div>
+  <h2>Mortes</h2><div class="feed">${deaths.map(d => `<div class="bad"><span class="t">${hhmm(d.ts)}</span><span><b>${esc(d.char)}</b> (${esc(d.machine)})${d.png ? ` · <a href="${d.png}" target="_blank">print</a>` : ""}</span></div>`).join("") || '<div class="note">nenhuma</div>'}</div>
+  <h2>PK no servidor</h2><div class="feed">${pks.map(p => `<div><span class="t">${hhmm(p.ts)}</span><span>${esc(p.killer)} matou ${esc(p.victim)}</span></div>`).join("") || '<div class="note">nenhum</div>'}</div>`;
+};
+
+// ---------------------------------------------------------------- Computadores
+VIEWS.pcs = () => {
+  const ms = S.machines || [];
+  let h = `<h1>Computadores</h1><div class="sub">Versão publicada: estável ${S.update ? S.update.seq : "—"}${S.update_test ? " · teste " + S.update_test.seq : ""}. Canal de teste: ${(S.test_machines || []).join(", ") || "nenhum"}.</div>
+  <table><thead><tr><th>Computador</th><th>IP</th><th>Versão</th><th>Canal</th><th>Último relatório</th><th>CPU</th><th>RAM</th><th>Ligado há</th><th>Personagens</th><th>Automação</th></tr></thead><tbody>`;
+  for (const m of ms) {
+    const dr = m.death_return || {}, M = esc(m.name).replace(/'/g, "\\'");
+    h += `<tr><td><i class="dot ${m.connected ? "ok" : ""}"></i> <b>${esc(m.name)}</b>${m.manual ? ' <span class="tag" style="background:#5a1d26;color:#ffb3bf" title="Pausa por F8 neste PC: automação pausada. Volta com F8 ou 3 min sem uso.">🔒 manual</span>' : ""}</td><td>${esc(m.ip || "—")}</td><td>${esc(m.version)}</td><td>${(S.test_machines || []).includes(m.name) ? '<span class="tag t">teste</span>' : "estável"}</td><td>${fmtDur(m.last_report_age_s)}</td><td class="num">${(m.cpu ?? 0).toFixed(1)}%</td><td class="num">${(m.mem_mb ?? 0).toFixed(0)} MB</td><td>${fmtDur(m.uptime_s)}</td><td>${(m.chars || []).map(c => esc(c.name)).join(", ") || "—"}</td>
+      <td><button class="tg ${m.automation ? "on" : ""}" title="Pânico remoto: desliga toda a automação de teclado/mouse deste PC" onclick="cmd('${M}',{cmd:'set_config',automation_enabled:${!m.automation}},'automação ${m.automation ? "desligada" : "ligada"}')"></button></td></tr>
+      <tr class="mrow"><td colspan="10"><div class="inl">
+        <span class="note">Volta depois de morrer: até</span><input type="number" id="dr_n_${M}" min="1" max="20" value="${dr.max_returns ?? 3}"><span class="note">voltas em</span><input type="number" id="dr_w_${M}" min="1" max="240" value="${dr.window_min ?? 10}"><span class="note">min · espera de</span><input type="number" step="0.5" id="dr_a_${M}" min="0" max="30" value="${Math.round((dr.delay_min_s ?? 30) / 6) / 10}"><span class="note">a</span><input type="number" step="0.5" id="dr_b_${M}" min="0" max="30" value="${Math.round((dr.delay_max_s ?? 120) / 6) / 10}"><span class="note">min</span>
+        <button class="sm" onclick="saveDR('${M}')">salvar regras</button>
+        <span style="flex:1"></span>
+        <button class="sm" onclick="cmd('${M}',{cmd:'pause_ram'},'pausar leitura da RAM')">pausar RAM</button>
+        <button class="sm" onclick="cmd('${M}',{cmd:'resume_ram'},'retomar leitura da RAM')">retomar RAM</button>
+        <button class="sm" onclick="cmd('${M}',{cmd:'send_logs'},'logs')">buscar logs</button>
+        <button class="sm dang" onclick="if(confirm('Reiniciar o agente de ${M}?'))cmd('${M}',{cmd:'restart_agent'},'reiniciar agente')">reiniciar agente</button>
+        <button class="sm dang" onclick="removePC('${M}')">remover PC</button></div></td></tr>`;
+  }
+  h += `</tbody></table>`;
+  if (ms.some(m => m.last_error)) h += `<h2>Últimos erros</h2><div class="feed">${ms.filter(m => m.last_error).map(m => `<div class="bad"><span class="t">${esc(m.name)}</span><span>${esc(m.last_error)}</span></div>`).join("")}</div>`;
+  return h;
+};
+function saveDR(m) {
+  const v = id => +$(id + m).value;
+  const c = { cmd: "set_death_return", max_returns: v("dr_n_"), window_min: v("dr_w_"), delay_min_s: Math.round(v("dr_a_") * 60), delay_max_s: Math.round(v("dr_b_") * 60) };
+  if (!(c.max_returns >= 1 && c.max_returns <= 20 && c.window_min >= 1 && c.window_min <= 240 && c.delay_min_s <= c.delay_max_s && c.delay_max_s <= 1800)) { toast("Regras inválidas: voltas 1–20, janela 1–240 min, espera mínima ≤ máxima ≤ 30 min.", true); return; }
+  cmd(m, c, "regras da volta");
+}
+async function removePC(m) {
+  if (!confirm(`Remover ${m}? O token é apagado e o nome fica bloqueado (não volta pelo pareamento automático).`)) return;
+  const token = ss("zm_admin"); if (!token) { toast("Cole o token de admin.", true); return; }
+  const r = await fetch("/api/machine/remove", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ machine: m }) });
+  toast(r.ok ? m + " removido e bloqueado." : `Falhou (${r.status}): ` + await r.text(), !r.ok);
+}
+
+// ---------------------------------------------------------------- Configurações
+VIEWS.cfg = () => `<h1>Configurações</h1><div class="sub">Ajustes gerais.</div>
+  <div class="sw" style="max-width:520px"><span>Cadastro automático de novos computadores (rede local)</span><button class="tg ${S.auto_pairing ? "on" : ""}" onclick="pairing(${!S.auto_pairing})"></button></div>
+  <h2>Versão base (segurança)</h2><div class="note" style="max-width:640px">A versão que funcionava bem está congelada em <code>C:\\ZenMonitorNovo\\versoes\\base-v28-2026-11-10</code>. Para voltar a ela: rodar <code>restaurar-base.ps1</code> dessa pasta (como administrador). Ele confere os arquivos, recoloca os executáveis e publica o agente da base para todos os PCs.</div>`;
+async function pairing(on) {
+  const token = ss("zm_admin"); if (!token) { toast("Cole o token de admin.", true); return; }
+  const r = await fetch("/api/auto_pairing", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + token }, body: JSON.stringify({ enabled: on }) });
+  toast(r.ok ? "salvo" : "falhou: " + r.status, !r.ok);
+}
+
+// ---------------------------------------------------------------- conexão (push do central)
+let BOOT_ID = null;
+function connect() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/panel");
+  ws.onmessage = ev => {
+    try { receiveState(JSON.parse(ev.data)); }
+    catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (lastRenderError !== message) toast("Erro ao exibir dados: " + message, true);
+      lastRenderError = message;
+      console.error("ZenMonitor: falha ao exibir atualização", e);
+    }
+  };
+  // Central reiniciado (bot atualizado): esta mesma aba se recarrega, sem abrir outra.
+  ws.onopen = async () => { try { const b = (await (await fetch("/api/panels")).json()).boot; if (BOOT_ID && b !== BOOT_ID) location.reload(); BOOT_ID = b; } catch {} };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+setInterval(() => {
+  const age = (Date.now() - lastMsgAt) / 1000;
+  $("live").className = "dot " + (lastRenderError ? "bad" : age < 5 ? "ok" : age < 15 ? "warn" : "");
+  $("livet").textContent = lastRenderError ? "erro ao exibir dados" : lastMsgAt ? (age < 5 ? ((S?.chars || []).length ? `ao vivo · ${S.chars.length} personagens` : "conectado · sem personagens") : `sem atualização há ${Math.round(age)} s`) : "conectando…";
+}, 1000);
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+tab = (location.hash || "#dash").slice(1); if (!TABS.some(t => t[0] === tab)) tab = "dash";
+renderNav(); connect();
+</script>
+</body>
+</html>

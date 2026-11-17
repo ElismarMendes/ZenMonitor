@@ -1,0 +1,15 @@
+[package]
+name = "zen-core"
+description = "Regras puras do ZenMonitor: parsers, métricas, alertas, dedupe e trava de RAM. Sem I/O, sem relógio."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Sem dependências obrigatórias de propósito: este crate compila e testa em qualquer
+# máquina, inclusive sem internet. O serde só entra quando agente/central pedem.
+[features]
+default = []
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }

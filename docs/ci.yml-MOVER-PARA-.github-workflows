@@ -1,0 +1,29 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  nucleo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, rustfmt }
+      - run: cargo fmt -p zen-core --check
+      - run: cargo clippy -p zen-core --all-targets -- -D warnings
+      - run: cargo test -p zen-core
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy }
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build --release --workspace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zenmonitor-windows
+          path: |
+            target/release/zen-agent.exe
+            target/release/zen-central.exe
+            target/release/fake-client.exe
+            target/release/zen-diag.exe

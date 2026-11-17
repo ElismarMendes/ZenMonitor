@@ -1,0 +1,21 @@
+# Interferência de mouse na Fortuna — 14/11/2026
+
+Na +104, o clique envia movimento do cursor, espera 60 ms e envia o botão sem `MOUSEEVENTF_MOVE`. Um movimento externo nesse intervalo pode desviar o pressionamento. Durante os 180 ms de botão pressionado, novo deslocamento também pode impedir que o cliente reconheça a interação. Os logs antigos não registram o cursor de cada evento e não permitem atribuir uma falha específica ao mouse do usuário.
+
+O log de 21:23 do ReDMooN registra `NPC: char ainda andando; parei sem repetir cliques`, e o retorno ao spot termina com Helper confirmado ligado. É compatível com desvio durante caminhada, mas não comprova a origem do movimento.
+
+A correção local usa movimento e botão no mesmo pacote, protege os movimentos de mouse durante clique/caminhada segurada e distingue os eventos próprios por `dwExtraInfo`. A proteção permanece pela espera já existente de 120 ms após soltar o botão, pois o cliente pode consumir a soltura no quadro seguinte. O filtro não bloqueia teclado ou botões físicos, libera movimentos em pausa/F8/perda de foco, e sai automaticamente no Drop. Há reconferência leve do cursor durante cliques, sem captura adicional de tela/RAM. Perda de foco/pausa durante clique retorna erro após soltar o botão, sem informar sucesso nem repetir transações financeiras.
+
+Validação: 61 testes aprovados. `pointer_interference` testa no x9901 o botão de expandir/recolher inventário, preservando o estado original e o Helper, sem Home, teleporte, caminhada, saque ou conversão. Na versão final do filtro, o teste por SendInput passou duas vezes: cerca de 48 movimentos a cada clique, com 48/47 movimentos críticos ignorados no primeiro par, expansão e recolhimento confirmados. Evidências `ponte/saida/codex-pointer-interference-live-v3.*` e `codex-pointer-interference-repeat.*`.
+
+O teste extremo por `SetCursorPos`, reposicionando diretamente a cada 8 ms, inicialmente ainda impedia o clique. O usuário confirmou ocorrência tanto por mouse físico quanto por Google Remote. A solução foi completada com uma restrição temporária do cursor ao ponto da ação, atualizada na direção da caminhada segurada. O limite anterior é restaurado ao terminar ou cancelar. Pausa/F8 soltam a restrição; a perda de foco e a ausência de atualização por um segundo são verificadas pelo supervisor. Não sobrescreve um limite instalado depois por outra aplicação. O uso/restauração segue o contrato de [ClipCursor](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-clipcursor).
+
+A revisão final passou em 62 testes. No x9901, `codex-pointer-pin-01-input-pause` confirmou abrir e recolher expandido sob movimentos SendInput externos e liberar o cursor na pausa; `codex-pointer-pin-03-direct-pause` confirmou o mesmo sob SetCursorPos a cada 8 ms, com 50/49 tentativas, além da restauração do limite anterior e interrupção da ação na pausa. Estado original do inventário e Helper ativo preservados em ambos. Nenhum saque/conversão ou ciclo completo de Fortuna foi executado nesta rodada.
+
+Pacote release em `target/publicar/release/zen-agent.exe`, SHA256 `07B582921EF50FC262F0A0A356C9894F352A28AE8AB2C8AB6E755CA508AB7A64`. Na primeira tentativa, às 21:52, a implantação não aconteceu: a revisão automática da ferramenta recusou o envio do script de atualização à ponte com a mensagem `blocked by policy`, sem detalhar o motivo. Até aquele momento a versão publicada permanecia +104.
+
+## Publicação após pedido explícito do usuário
+
+Às 22:20 de 14/11, o usuário solicitou a publicação. A ponte aceitou o novo job autorizado. O pacote foi disponibilizado como +105 exclusivamente no PC1; às 22:22 a instalação, conexão e hash idêntico ao validado foram confirmados. O mesmo executável foi promovido para +106 estável às 22:23:06, preservando backup da +104 em `target/release/atualizacoes/backup-pointer-*`. Só PC1 permanece no canal de teste. Jobs: `codex-publicar-pointer-autorizado-teste` e `codex-publicar-pointer-autorizado-estavel`, ambos com código de saída zero.
+
+Às 22:24, +106 instalada e conexão ativa confirmadas nos cinco computadores: PC1, ELISMAR, ELISMAR-NOTE, DESKTOP-E1GLBEF e DESKTOP-RAG9LEL. Relatórios recentes e `last_error=null` em todos. Estado final em `target/pointer-publication-final.json`.

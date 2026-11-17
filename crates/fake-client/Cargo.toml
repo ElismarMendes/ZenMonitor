@@ -1,0 +1,12 @@
+[package]
+name = "fake-client"
+description = "Imita o MU para testes: janela com o mesmo título, Zen na memória, linhas de chat, TCP."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zen-core = { path = "../zen-core" }
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true

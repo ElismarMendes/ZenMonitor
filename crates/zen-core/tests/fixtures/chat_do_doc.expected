@@ -1,0 +1,24 @@
+[PK] : Assassino killed ReDMooN
+  => Some(Pk { killer: "Assassino", killer_kind: Player, victim: "ReDMooN" })
+[PK] : Golden Saty killed ReDMooN
+  => Some(Pk { killer: "Golden Saty", killer_kind: Monster, victim: "ReDMooN" })
+[PK] : Death Rider killed Elfinha
+  => Some(Pk { killer: "Death Rider", killer_kind: Monster, victim: "Elfinha" })
+[PK] : Canon Trap killed BkMaster
+  => Some(Pk { killer: "Canon Trap", killer_kind: Monster, victim: "BkMaster" })
+[PK] : Balrog killed ReDMooN
+  => Some(Pk { killer: "Balrog", killer_kind: Monster, victim: "ReDMooN" })
+[PK] :  killed ReDMooN
+  => None
+ReDMooN : [PickItem] Jewel of Soul
+  => Some(Pick { char_name: "ReDMooN", jewel: Soul })
+ReDMooN : [PickItem] Jewel of Bless
+  => Some(Pick { char_name: "ReDMooN", jewel: Bless })
+Elfinha : [PickItem] Fortuna do Imperador
+  => Some(Pick { char_name: "Elfinha", jewel: EmperorsFortune })
+ReDMooN : [PickItem] Enchanted Jewel Of Soul
+  => None
+[PickItem] Jewel of Chaos
+  => None
+Fulano : oi alguem vende bless?
+  => None

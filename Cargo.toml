@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/zen-core",
+    "crates/agent",
+    "crates/central",
+    "crates/fake-client",
+    "crates/diag",
+]
+
+[workspace.package]
+version = "3.0.0-alpha.1"
+edition = "2021"
+rust-version = "1.87"
+license = "Proprietary"
+
+[workspace.dependencies]
+zen-core = { path = "crates/zen-core", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+anyhow = "1"
+toml = "0.8"
+futures-util = "0.3"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
+    "Win32_System_LibraryLoader",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "Win32_System_WinRT",
+    "Win32_System_Com",
+] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"

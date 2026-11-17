@@ -1,0 +1,15 @@
+# Linhas montadas a partir dos formatos descritos no doc do projeto.
+# NÃO são a coleta real. Quando dados-reais/ chegar, as 48 linhas de PK e as 424 de joia
+# entram em chat_real.txt e viram o golden principal.
+[PK] : Assassino killed ReDMooN
+[PK] : Golden Saty killed ReDMooN
+[PK] : Death Rider killed Elfinha
+[PK] : Canon Trap killed BkMaster
+[PK] : Balrog killed ReDMooN
+[PK] :  killed ReDMooN
+ReDMooN : [PickItem] Jewel of Soul
+ReDMooN : [PickItem] Jewel of Bless
+Elfinha : [PickItem] Fortuna do Imperador
+ReDMooN : [PickItem] Enchanted Jewel Of Soul
+[PickItem] Jewel of Chaos
+Fulano : oi alguem vende bless?
