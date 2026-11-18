@@ -107,7 +107,7 @@ pub(in crate::win::nav) fn nav_tuning() -> zen_core::navegacao::NavTuning {
 
 /// Anda até perto (até 2 tiles) de `target`: patrulha e aproximação de monstro, onde o tile
 /// exato não importa e insistir nele com mobs em volta só gastava cliques.
-pub fn walk_near(hwnd: isize, t: &Terrain, target: (i32, i32), status: &dyn Fn(String)) -> Result<(i32, i32), String> {
+pub fn walk_close(hwnd: isize, t: &Terrain, target: (i32, i32), status: &dyn Fn(String)) -> Result<(i32, i32), String> {
     walk_with_arrival(hwnd, t, target, WalkArrival::Near, status)
 }
 pub(in crate::win::nav) use zen_core::spots::ARRIVAL_RADIUS as SPOT_ARRIVAL_TOLERANCE;

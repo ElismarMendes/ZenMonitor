@@ -933,7 +933,7 @@ fn main() -> anyhow::Result<()> {
                 if let Some(b) = objs.iter().find(|o| zen_core::objects::is_golden_boss(o) && cheb((o.x, o.y), pos) <= 12) {
                     log(&mut out, format!("CHEFE {} classe {} em ({}, {}): fugindo para a safe e parando", b.name, b.class, b.x, b.y));
                     let _ = nav::set_helper(w.hwnd, false);
-                    let _ = nav::walk_near(w.hwnd, &t, (123, 129), &status);
+                    let _ = nav::walk_close(w.hwnd, &t, (123, 129), &status);
                     break;
                 }
                 let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o) && (posto.is_none() || cheb((o.x, o.y), pos) <= 12)).cloned().collect();
@@ -952,7 +952,7 @@ fn main() -> anyhow::Result<()> {
                     for tentativa in 0..3 {
                         if perto { break; }
                         let _ = nav::set_helper(w.hwnd, false);
-                        let r = nav::walk_near(w.hwnd, &t, alvo, &status);
+                        let r = nav::walk_close(w.hwnd, &t, alvo, &status);
                         let p = nav::position(w.hwnd).unwrap_or(pos);
                         let agora = ler(p);
                         let Some(g2) = agora.iter().filter(|o| zen_core::objects::is_golden(o)).min_by_key(|o| cheb((o.x, o.y), p)) else {
@@ -995,7 +995,7 @@ fn main() -> anyhow::Result<()> {
                     // perseguição levou) volta andando com o helper desligado.
                     if cheb(p, pos) > 4 {
                         let _ = nav::set_helper(w.hwnd, false);
-                        match nav::walk_near(w.hwnd, &t, p, &status) {
+                        match nav::walk_close(w.hwnd, &t, p, &status) {
                             Ok(q) => log(&mut out, format!("de volta ao posto {q:?}")),
                             Err(e) => {
                                 log(&mut out, format!("volta ao posto falhou: {e}"));
@@ -1022,7 +1022,7 @@ fn main() -> anyhow::Result<()> {
                 let _ = nav::set_helper(w.hwnd, false);
                 let t_trecho = std::time::Instant::now();
                 let rota = t.path(pos, alvo).or_else(|| t.path_escape(pos, alvo)).unwrap_or_default();
-                match nav::walk_near(w.hwnd, &t, alvo, &status) {
+                match nav::walk_close(w.hwnd, &t, alvo, &status) {
                     Ok(p) => {
                         falhas_seguidas = 0;
                         for q in rota.iter().step_by(6) { cob.mark(*q, agora()); }
