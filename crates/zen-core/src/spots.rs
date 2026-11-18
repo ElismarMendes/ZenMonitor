@@ -3,6 +3,9 @@ use crate::objects::{Kind, Obj};
 
 /// Margem m?xima para confirmar chegada ao spot de farm.
 pub const ARRIVAL_RADIUS: i32 = 2;
+/// Jogador de fora a até tantos tiles = spot ocupado. Era 6; o helper tem range 6, então dois chars
+/// a até 12 tiles disputam os mesmos mobs (KS do x9901 no 4RTURZ1N, 18/11 08:25).
+pub const OCCUPIED_RADIUS: i32 = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -188,7 +191,7 @@ pub fn foreign_occupants<'a>(
             o.kind == Kind::Player
                 && !o.name.eq_ignore_ascii_case(me)
                 && !friendly(&o.name)
-                && (o.x - spot.x).abs().max((o.y - spot.y).abs()) <= 6
+                && (o.x - spot.x).abs().max((o.y - spot.y).abs()) <= OCCUPIED_RADIUS
         })
         .map(|o| o.name.as_str())
         .collect())

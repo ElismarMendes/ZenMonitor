@@ -809,6 +809,24 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 group.friendly(n)||cfg.spots.keys().any(|f|f.eq_ignore_ascii_case(n))||cfg.friendly_chars.iter().any(|f|f.eq_ignore_ascii_case(n)));
             let Ok(foreign)=foreign else {continue};
             let foreign:Vec<String>=foreign.into_iter().map(str::to_owned).collect();
+            // Vigia da chegada (dono, 18/11 08:46): nos primeiros 3 min no spot, jogador de fora
+            // por perto = o spot já era dele. Larga o spot e procura outro livre. Depois de 3 min
+            // o spot é nosso e KS só vira aviso. Não vale para a volta depois de morte (sempre
+            // volta) nem para char travado no spot.
+            let recem=rec.farm_since.get(name).is_some_and(|t|now().saturating_sub(*t)<180);
+            if recem && !foreign.is_empty() && cfg.automation_enabled && !rec.is_busy() && !input::manual_mode()
+                && !rec.return_owned.contains(name) && !cfg.locked_spots.iter().any(|n|n==name)
+                && !cfg.no_automation.iter().any(|n|n==name) {
+                if let Some((hwnd,_))=seen.get(name).copied() {
+                    let why=format!("spot já ocupado por {} ao chegar", foreign.join(", "));
+                    let _=zen_agent::spot_service::clear_active(name);
+                    rec.farm_since.remove(name);
+                    if let Err(e)=rec.start(name,c.pid,hwnd,(spot.x,spot.y),spot_dest(&cfg,name),&why) {
+                        tracing::warn!(char=%name,erro=%e,"vigia da chegada: busca não iniciou");
+                    }
+                    continue;
+                }
+            }
             if !rec.is_busy() && zen_agent::spot_service::active(name).is_none() {
                 if let Some(home)=zen_agent::spot_service::home(&cfg,name) {
                     let _=zen_agent::spot_service::set_active(name,zen_agent::spot_service::ActiveSpot{spot,home,retry_at:0});
