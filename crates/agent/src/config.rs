@@ -51,6 +51,13 @@ pub struct AgentConfig {
     /// Avisos amarelos do servidor (fila fixa na memória, leitura de 4,5 KB por ciclo).
     /// Vão para a central, que grava e avisa no celular as invasões. Ligado por padrão.
     pub server_notices: bool,
+    /// Grava a janela do char (1 quadro a cada `gravacao_intervalo_s`, metade do tamanho) enquanto
+    /// ele está fora do spot num "ir até" (invasão). Pasta gravacoes\, guardada `gravacao_manter_h`.
+    pub gravar_invasoes: bool,
+    pub gravacao_intervalo_s: u64,
+    pub gravacao_manter_h: u64,
+    /// Char que vai sozinho ao Ice Queen (Devias) no aviso de 3 min. Vazio = desligado.
+    pub ice_queen_char: String,
     /// AUTOMAÇÃO DE TECLADO/MOUSE (SendInput, janela em foco). Desligada por padrão.
     /// Liga só ações da lista fechada; ver docs/decisoes/0011. Painel: botão por PC.
     pub automation_enabled: bool,
@@ -147,6 +154,10 @@ impl Default for AgentConfig {
             ram_paused: false,
             chat_enabled: false,
             server_notices: true,
+            gravar_invasoes: true,
+            gravacao_intervalo_s: 2,
+            gravacao_manter_h: 48,
+            ice_queen_char: String::new(),
             navegacao: Default::default(),
             automation_enabled: false,
             automation_idle_s: 60,

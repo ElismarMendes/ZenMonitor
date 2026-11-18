@@ -45,6 +45,31 @@ impl Image {
         }
     }
 
+    /// Redução por `n` (média de cada bloco n×n): gravação das invasões ocupa 1/n² do espaço.
+    pub fn downscale(&self, n: u32) -> Image {
+        let n = n.max(1);
+        let (w2, h2) = (self.w / n, self.h / n);
+        let mut out = vec![0u8; (w2 * h2 * 4) as usize];
+        for y in 0..h2 {
+            for x in 0..w2 {
+                let mut acc = [0u32; 4];
+                for dy in 0..n {
+                    for dx in 0..n {
+                        let s = ((((y * n + dy) * self.w) + x * n + dx) * 4) as usize;
+                        for c in 0..4 {
+                            acc[c] += self.bgra[s + c] as u32;
+                        }
+                    }
+                }
+                let d = ((y * w2 + x) * 4) as usize;
+                for c in 0..4 {
+                    out[d + c] = (acc[c] / (n * n)) as u8;
+                }
+            }
+        }
+        Image { w: w2, h: h2, bgra: out }
+    }
+
     pub fn upscale2(&self) -> Image {
         self.upscale(2)
     }

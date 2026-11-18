@@ -136,6 +136,10 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
     let mut chat = ChatReader::default();
     let mut notices = zen_agent::win::avisos::NoticeReader::default();
     zen_agent::win::nav::set_nav_tuning(cfg.navegacao);
+    let mut gravador = zen_agent::win::gravador::Gravador::new(AgentConfig::dir().join("gravacoes"), cfg.gravacao_intervalo_s, cfg.gravacao_manter_h);
+    let mut janelas: std::collections::HashMap<String, isize> = Default::default();
+    // Ice Queen automático: (char, até quando fica lá).
+    let mut ice_until: Option<(String, u64)> = None;
     let mut last_chat = Instant::now() - CHAT_EVERY;
     let mut cpu = health::CpuMeter::new();
     let started = Instant::now();
@@ -273,6 +277,14 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 let _ = out_tx.try_send(m);
             }
         }
+        // Gravação das idas a invasões ("ir até"): um quadro a cada poucos segundos.
+        if cfg.gravar_invasoes && !monitor.ram_paused {
+            let alvo: Vec<(String, isize, String)> = rec.hold.iter()
+                .filter(|(_, h)| h.starts_with("foi até"))
+                .filter_map(|(n, _)| janelas.get(n).map(|w| (n.clone(), *w, "invasao".to_string())))
+                .collect();
+            gravador.tick(&alvo);
+        }
         if Instant::now() < next_cycle {
             let spent = tick.elapsed();
             std::thread::sleep(Duration::from_millis(zen_agent::monitor::HP_TICK_MS).saturating_sub(spent));
@@ -341,6 +353,17 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 let m = match &r {
                     Ok(m) | Err(m) => format!("{name}: {m}"),
                 };
+                // Travou no caminho: o print vai para o central e para a gravação da ida.
+                if !ok {
+                    if let Some(png) = zen_agent::win::nav::take_error_shot() {
+                        gravador.marcar(&name, &png, &m);
+                        let _ = out_tx.try_send(AgentMsg::Screenshot {
+                            id: 0,
+                            char_name: format!("{name}-erro"),
+                            png_base64: base64::engine::general_purpose::STANDARD.encode(png),
+                        });
+                    }
+                }
                 let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok, message: m });
                 rec.set_status(&name, match r {
                     Ok(m) => format!("{m} ({hhmm})"),
@@ -798,6 +821,17 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             };
         }
         // KS em spot assumido só gera análise/status: não chama nenhuma rotina de movimento.
+        for (n, (h, _)) in &seen {
+            janelas.insert(n.clone(), *h);
+        }
+        // Ice Queen: passou do tempo, solta o char (a volta automática leva de volta ao spot).
+        if let Some((n, ate)) = ice_until.clone() {
+            if now() >= ate {
+                tracing::warn!(char = %n, "Ice Queen: tempo esgotado, voltando ao spot");
+                rec.hold.remove(&n);
+                ice_until = None;
+            }
+        }
         let group=zen_agent::spot_service::directory(false).unwrap_or_default();
         for c in &mut chars {
             let Some(name)=c.title.name.as_deref() else {continue};
@@ -934,6 +968,33 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             if let Some(c) = chars.iter().filter(|c| c.title.name.is_some()).min_by_key(|c| c.pid) {
                 for text in notices.poll(c.pid) {
                     tracing::info!(aviso = %text, "aviso do servidor");
+                    // Ice Queen automático (dono, 18/11 11:39): no aviso de 3 min vai para o ponto
+                    // de Devias mais perto da chegada (22,100: 161 passos; 40,220: 198) e espera lá
+                    // com o helper ligado. Acabou ("is gone") ou 10 min: solta e volta ao spot.
+                    let ice = cfg.ice_queen_char.trim().to_string();
+                    if !ice.is_empty() && cfg.automation_enabled && !input::manual_mode() {
+                        if text.contains("Ice Queen Invasion starts in 3") && ice_until.is_none() {
+                            if let Some(&hw) = janelas.get(&ice) {
+                                rec.hold.insert(ice.clone(), "foi até o Ice Queen (Devias 22,100): volta sozinho quando acabar".into());
+                                match rec.start_goto(&ice, hw, 3, zen_agent::win::nav::Dest::Devias, (22, 100)) {
+                                    Ok(()) => {
+                                        tracing::warn!(char = %ice, "Ice Queen: indo para Devias (22,100)");
+                                        ice_until = Some((ice.clone(), now() + 600));
+                                    }
+                                    Err(e) => {
+                                        rec.hold.remove(&ice);
+                                        tracing::warn!(char = %ice, erro = %e, "Ice Queen: não saiu");
+                                    }
+                                }
+                            }
+                        }
+                        if text.contains("Ice Queen is gone") {
+                            if let Some((n, _)) = ice_until.take() {
+                                tracing::warn!(char = %n, "Ice Queen acabou: voltando ao spot");
+                                rec.hold.remove(&n);
+                            }
+                        }
+                    }
                     let _ = out_tx.try_send(AgentMsg::ServerNotice {
                         char_name: c.title.name.clone().unwrap_or_default(),
                         at: now(),

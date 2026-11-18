@@ -9,6 +9,7 @@ pub use leitura::{capture, memory, objects, chat, avisos, health, tcp, windows_l
 pub use entrada::{input, hotkey};
 
 pub mod spots;
+pub mod gravador;
 
 use crate::{GameAccess, GameWindow};
 

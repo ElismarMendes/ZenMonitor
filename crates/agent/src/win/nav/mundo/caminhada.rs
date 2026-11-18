@@ -213,6 +213,7 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
                     drop(h);
                     let m = format!("sem progresso: {}", prog.describe(ms()));
                     tracing::warn!(hwnd, "{m}");
+                    save_error_shot(hwnd, &m);
                     return Err(m);
                 }
                 zen_core::navegacao::Verdict::Stalled { ms: parado } if local_detours < tun.max_local_detours => {
@@ -379,6 +380,7 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
         if let zen_core::navegacao::Verdict::NoProgress { .. } = prog.update(ms(), new, route(new, target).map(|p| p.len()).unwrap_or(usize::MAX)) {
             let m = format!("sem progresso no ajuste final: {}", prog.describe(ms()));
             tracing::warn!(hwnd, "{m}");
+            save_error_shot(hwnd, &m);
             return Err(m);
         }
         if new == pos {
