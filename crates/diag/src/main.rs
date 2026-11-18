@@ -827,6 +827,11 @@ fn main() -> anyhow::Result<()> {
             let name = args.get(1).ok_or_else(|| anyhow::anyhow!("falta o nome"))?.clone();
             let secs: u64 = args.get(2).and_then(|a| a.parse().ok()).unwrap_or(1200);
             let raio: i32 = args.get(3).and_then(|a| a.parse().ok()).unwrap_or(40);
+            // Modo posto (dono, 18/11 09:04): fica parado num tile com o helper ligado e só anda
+            // quando um golden aparece a até 12 tiles. Uso: caca-golden <nome> <seg> posto <x> <y>
+            let posto: Option<(i32, i32)> = (args.get(3).map(|s| s.as_str()) == Some("posto"))
+                .then(|| Some((args.get(4)?.parse().ok()?, args.get(5)?.parse().ok()?)))
+                .flatten();
             let w = zen_agent::win::windows_list::find_by_class("The Classic MU Season 2")
                 .into_iter()
                 .find(|w| zen_core::title::parse(&w.title).name.is_some_and(|n| n.eq_ignore_ascii_case(&name)))
@@ -866,7 +871,12 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            log(&mut out, format!("anel de patrulha ({} pontos): {anel:?}", anel.len()));
+            if let Some(p) = posto {
+                anel = vec![p];
+                log(&mut out, format!("modo posto em {p:?}"));
+            } else {
+                log(&mut out, format!("anel de patrulha ({} pontos): {anel:?}", anel.len()));
+            }
             let status = |_m: String| {};
             let ler = |pos: (i32, i32)| objects::nearby(w.pid, &name, pos).unwrap_or_default();
             // Começa no ponto do anel mais perto do char.
@@ -890,7 +900,7 @@ fn main() -> anyhow::Result<()> {
                     let _ = nav::walk(w.hwnd, &t, (123, 129), &status);
                     break;
                 }
-                let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o)).cloned().collect();
+                let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o) && (posto.is_none() || cheb((o.x, o.y), pos) <= 12)).cloned().collect();
                 gs.sort_by_key(|o| cheb((o.x, o.y), pos));
                 if let Some(g) = gs.first().cloned() {
                     *vistos.entry(format!("{} classe {}", g.name, g.class)).or_default() += 1;
@@ -943,6 +953,23 @@ fn main() -> anyhow::Result<()> {
                     std::thread::sleep(std::time::Duration::from_secs(2));
                     continue;
                 }
+                if let Some(p) = posto {
+                    // Parado no posto com o helper ligado; longe do posto (o helper arrastou ou a
+                    // perseguição levou) volta andando com o helper desligado.
+                    if cheb(p, pos) > 4 {
+                        let _ = nav::set_helper(w.hwnd, false);
+                        match nav::walk(w.hwnd, &t, p, &status) {
+                            Ok(q) => log(&mut out, format!("de volta ao posto {q:?}")),
+                            Err(e) => {
+                                log(&mut out, format!("volta ao posto falhou: {e}"));
+                                std::thread::sleep(std::time::Duration::from_secs(3));
+                            }
+                        }
+                    }
+                    let _ = nav::set_helper(w.hwnd, true);
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                    continue;
+                }
                 // Sem golden: próximo ponto do anel, helper desligado. Trecho que falhar é pulado.
                 let alvo = anel[i % anel.len()];
                 i += 1;
@@ -955,6 +982,7 @@ fn main() -> anyhow::Result<()> {
                         falhas_seguidas += 1;
                         log(&mut out, format!("patrulha: {alvo:?} falhou em {} s: {e}", t_trecho.elapsed().as_secs()));
                         if falhas_seguidas >= 3 { i += 2; falhas_seguidas = 0; }
+                        std::thread::sleep(std::time::Duration::from_secs(2));
                     }
                 }
             }
