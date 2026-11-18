@@ -742,6 +742,23 @@ async fn api_command(State(app): State<Shared>, headers: HeaderMap, Json(req): J
         *n += 1;
         *n
     };
+    // Ligar/desligar spot do catálogo: decisão da central, não vai para nenhum agente.
+    if let Command::SetSpotEnabled { world, x, y, enabled } = &req.command {
+        let sp = zen_core::spots::Spot { world: *world, x: *x, y: *y };
+        {
+            let mut book = app.spot_book.lock().await;
+            book.disabled.retain(|d| !d.near(sp, 0));
+            if !*enabled {
+                book.disabled.push(sp);
+            }
+            if let Err(e) = save_spot_book(&book) {
+                return (StatusCode::INTERNAL_SERVER_ERROR, format!("não gravei: {e}")).into_response();
+            }
+        }
+        broadcast_spots(&app).await;
+        push_result(&app, json!({"id": id, "machine": "central", "ok": true, "message": format!("spot {} {}", sp.id(), if *enabled { "ativado" } else { "desativado" }), "ts": now()})).await;
+        return Json(json!({"id": id})).into_response();
+    }
     // Um spot, um dono: recusa dar a um char um spot (até 2 tiles) que já é de outro char,
     // de qualquer PC (o mapa é o mesmo para todos).
     if let Command::AssignSpot { char_name, x, y } = &req.command {
@@ -1079,11 +1096,43 @@ async fn api_death_png(State(app): State<Shared>, Path(id): Path<i64>) -> Respon
 
 // ---------------------------------------------------------------- tarefas
 
+/// A cada 15 s: ocupação dos spots do catálogo que algum char nosso (de qualquer PC) está vendo.
+/// Vai para os agentes no diretório: a busca pula spot visto ocupado há pouco sem andar até lá,
+/// e a volta ao mapa original sem sondagem só sai com vaga confirmada.
+async fn observe_spots(app: &Shared) {
+    let snap = app.hub.lock().await.snapshot(now());
+    let fresh = {
+        let book = app.spot_book.lock().await;
+        let ours: std::collections::HashSet<String> = snap.iter().map(|c| c.name.to_lowercase()).collect();
+        let viewers: Vec<zen_core::spots::Viewer> = snap
+            .iter()
+            .filter(|c| !c.alerts.iter().any(|a| matches!(a, zen_core::alerts::AlertKind::Offline | zen_core::alerts::AlertKind::Dc)))
+            .filter_map(|c| {
+                let world = zen_core::spots::world_for_name(c.map.as_deref()?)?;
+                let pos = c.pos?;
+                let players = c.nearby.as_ref()?.iter().filter(|o| o.kind == zen_core::objects::Kind::Player).map(|o| (o.name.as_str(), (o.x, o.y))).collect();
+                Some(zen_core::spots::Viewer { world, pos, name: c.name.as_str(), players })
+            })
+            .collect();
+        zen_core::spots::observe_catalog(&book.catalog, &viewers, &|n| ours.contains(&n.to_lowercase()) || book.friendly(n), now())
+    };
+    if fresh.is_empty() {
+        return;
+    }
+    app.spot_book.lock().await.merge_observed(fresh);
+    broadcast_spots(app).await;
+}
+
 /// A cada 1 s: estado para os painéis e notificações para o celular.
 async fn ticker(app: Shared) {
     let mut iv = tokio::time::interval(Duration::from_secs(1));
+    let mut n = 0u64;
     loop {
         iv.tick().await;
+        n += 1;
+        if n % 15 == 0 {
+            observe_spots(&app).await;
+        }
         // v5: sem painel aberto não monta nem serializa o estado (~50 KB por segundo à toa).
         if app.panel_tx.receiver_count() > 0 {
             let state = build_state(&app).await.to_string();

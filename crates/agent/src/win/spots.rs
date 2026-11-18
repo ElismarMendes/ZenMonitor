@@ -278,6 +278,8 @@ fn recover_with(
     let distances = entry_distances(hwnd, std::iter::once(first.world).chain(std::iter::once(home.world)).chain(alt_worlds.iter().copied()));
     let dist = |s: Spot| distances.get(&s.world).and_then(|d| d.get(s.y as usize * 256 + s.x as usize)).filter(|v| **v != u16::MAX).map(|v| *v as u32);
     let current_alt = group::active(name).filter(|a| a.home == home && a.spot.world != home.world).map(|a| a.spot);
+    // Spots desativados no painel saem da busca (o pedido explícito `first` fica).
+    catalog.retain(|c| c.spot == first || !directory.is_disabled(c.spot));
     let mut choices = zen_core::spots::search_order(first, home, current_alt, &catalog, &rules, &dist);
     // Desativar fallback limita os destinos; nunca contorna reserva ou ocupação.
     if !cfg.spot_fallback || keep_owned || cfg.locked_spots.iter().any(|n| n == name) {
@@ -301,6 +303,13 @@ fn recover_with(
         if let Some(owner) = group::directory(true)?.owner(choice, name, now()) {
             reasons.push(format!("{} é de {owner}", choice.id()));
             continue;
+        }
+        // Outro char nosso viu o spot ocupado há menos de 90 s: pula sem andar até lá.
+        if !keep_owned {
+            if let Some(o) = group::directory(false).ok().and_then(|d| d.observation(choice, now(), 90).filter(|o| !o.foreign.is_empty()).cloned()) {
+                reasons.push(format!("{}: ocupado por {} (visto por {} há {} s)", choice.id(), o.foreign.join(", "), o.by, now().saturating_sub(o.at)));
+                continue;
+            }
         }
         let Some(dest) = nav::Dest::from_world(choice.world).filter(|d| *d != nav::Dest::Lorencia) else {
             continue;

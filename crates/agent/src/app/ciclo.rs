@@ -679,11 +679,16 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 let Some(dest)=zen_agent::win::nav::Dest::from_world(home.world) else {continue};
                 let rules=cfg.farm_rules(name);
                 active.retry_at=now()+(rules.retorno_min*60).clamp(60,86400);
-                if !rules.sondagem {
-                    // Sem sondagem: só voltaria com vaga confirmada por outra fonte (ainda não
-                    // existe). Fica farmando no alternativo e reagenda.
+                // Vaga no mapa original confirmada por algum char nosso nos últimos 2 min?
+                let confirmed = zen_agent::spot_service::directory(false).ok().is_some_and(|d| {
+                    d.observed.iter().any(|o| o.spot.world == home.world && o.foreign.is_empty()
+                        && now().saturating_sub(o.at) <= 120 && !d.is_disabled(o.spot) && d.owner(o.spot, name, now()).is_none())
+                });
+                if !rules.sondagem && !confirmed {
+                    // Sem sondagem: só volta com vaga confirmada por outro char. Fica farmando
+                    // no alternativo e reagenda.
                     let _=zen_agent::spot_service::set_active(name,active);
-                    rec.set_status(name,"reavaliação do mapa original adiada: sondagem desligada e nenhuma vaga confirmada".into());
+                    rec.set_status(name,"reavaliação do mapa original adiada: nenhuma vaga confirmada (sondagem desligada)".into());
                     continue;
                 }
                 if zen_agent::spot_service::set_active(name,active).is_err(){continue}

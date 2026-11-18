@@ -77,8 +77,70 @@ pub struct Directory {
     pub leases: Vec<Lease>,
     #[cfg_attr(feature = "serde", serde(default))]
     sources: std::collections::BTreeMap<String, Vec<CatalogSpot>>,
+    /// Spots do catálogo desativados no painel (ficam no catálogo, mas a busca pula).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub disabled: Vec<Spot>,
+    /// Última ocupação vista de cada spot por QUALQUER char nosso a até `OCCUPIED_RADIUS`
+    /// (a central junta a visão de todos os PCs). Só vale como confirmação se for recente.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub observed: Vec<Observed>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Observed {
+    pub spot: Spot,
+    pub at: u64,
+    /// Jogadores de fora vistos a até 12 tiles (vazio = livre naquele momento).
+    pub foreign: Vec<String>,
+    /// Quem viu.
+    pub by: String,
+}
+
+/// Um char nosso que está enxergando: mapa, posição e jogadores em volta (nome, posição).
+pub struct Viewer<'a> {
+    pub world: u8,
+    pub pos: (i32, i32),
+    pub name: &'a str,
+    pub players: Vec<(&'a str, (i32, i32))>,
+}
+
+/// Ocupação dos spots do catálogo que algum char nosso está vendo agora. Um spot só é
+/// "visto" se o char está a até `OCCUPIED_RADIUS` dele (enxerga o raio inteiro).
+pub fn observe_catalog(catalog: &[CatalogSpot], viewers: &[Viewer], ours: &dyn Fn(&str) -> bool, now: u64) -> Vec<Observed> {
+    let mut out = Vec::new();
+    for c in catalog {
+        let sp = c.spot;
+        let Some(v) = viewers.iter().find(|v| v.world == sp.world && (v.pos.0 - sp.x).abs().max((v.pos.1 - sp.y).abs()) <= OCCUPIED_RADIUS) else { continue };
+        let mut foreign: Vec<String> = viewers
+            .iter()
+            .filter(|v| v.world == sp.world)
+            .flat_map(|v| v.players.iter())
+            .filter(|(n, p)| !ours(n) && (p.0 - sp.x).abs().max((p.1 - sp.y).abs()) <= OCCUPIED_RADIUS)
+            .map(|(n, _)| n.to_string())
+            .collect();
+        foreign.sort();
+        foreign.dedup();
+        out.push(Observed { spot: sp, at: now, foreign, by: v.name.to_string() });
+    }
+    out
+}
+
 impl Directory {
+    pub fn is_disabled(&self, s: Spot) -> bool {
+        self.disabled.iter().any(|d| d.near(s, 0))
+    }
+    /// Observação recente (até `max_age` s) do spot, se houver.
+    pub fn observation(&self, s: Spot, now: u64, max_age: u64) -> Option<&Observed> {
+        self.observed.iter().find(|o| o.spot.near(s, 2) && now.saturating_sub(o.at) <= max_age)
+    }
+    /// Junta observações novas às antigas (a mais nova de cada spot fica).
+    pub fn merge_observed(&mut self, fresh: Vec<Observed>) {
+        for o in fresh {
+            self.observed.retain(|x| !x.spot.near(o.spot, 0));
+            self.observed.push(o);
+        }
+    }
     pub fn friendly(&self, name: &str) -> bool {
         self.members.iter().any(|m| m.name.eq_ignore_ascii_case(name))
     }
@@ -304,6 +366,25 @@ pub fn search_order(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod observed_tests {
+    use super::*;
+    #[test]
+    fn so_ve_quem_esta_perto_e_ignora_os_nossos() {
+        let cat = vec![CatalogSpot { spot: Spot { world: 38, x: 100, y: 100 }, priority: 0 }, CatalogSpot { spot: Spot { world: 38, x: 10, y: 10 }, priority: 1 }];
+        let v = vec![Viewer { world: 38, pos: (105, 100), name: "Eu", players: vec![("Fulano", (110, 100)), ("Nosso", (100, 101)), ("Longe", (130, 100))] }];
+        let o = observe_catalog(&cat, &v, &|n| n == "Nosso", 50);
+        assert_eq!(o.len(), 1, "o spot (10,10) ninguém está vendo");
+        assert_eq!(o[0].foreign, vec!["Fulano".to_string()]);
+        let mut d = Directory::default();
+        d.merge_observed(o);
+        assert!(d.observation(Spot { world: 38, x: 100, y: 100 }, 100, 60).is_some());
+        assert!(d.observation(Spot { world: 38, x: 100, y: 100 }, 200, 60).is_none(), "antiga não vale");
+        d.disabled.push(Spot { world: 38, x: 10, y: 10 });
+        assert!(d.is_disabled(Spot { world: 38, x: 10, y: 10 }));
+    }
 }
 
 #[cfg(test)]

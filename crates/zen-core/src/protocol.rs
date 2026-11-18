@@ -277,6 +277,13 @@ pub enum Command {
     PostponeReturn {
         char_name: String,
     },
+    /// Liga/desliga um spot do catálogo (a central guarda; não vai para nenhum agente).
+    SetSpotEnabled {
+        world: u8,
+        x: i32,
+        y: i32,
+        enabled: bool,
+    },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
