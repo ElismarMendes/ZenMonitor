@@ -113,8 +113,42 @@ pub(super) fn save_spot_other(cfg: &mut AgentConfig, name: &str, map: &str, p: [
 /// Mapa e posição lidos na tela no instante do pedido (atalho ou painel).
 pub(super) type Snap = (Option<&'static str>, Option<(i32, i32)>);
 
+/// Trava (dono, 18/11 20:15): spot novo a menos de 8 tiles de outro do catálogo do mesmo mapa é
+/// recusado (a até 2 tiles é o mesmo spot e só atualiza o tile).
+pub(super) fn check_spacing(cfg:&AgentConfig,map:&str,p:[i32;2])->Result<(),String> {
+    let Some(world)=zen_core::spots::world_for_name(map) else {return Ok(())};
+    let list:Vec<zen_core::spots::Spot>=if map=="Kanturu" {cfg.catalog.clone()} else {cfg.catalog_maps.get(map).cloned().unwrap_or_default()}
+        .into_iter().map(|[x,y]|zen_core::spots::Spot{world,x,y}).collect();
+    match zen_core::spots::too_close(&list,zen_core::spots::Spot{world,x:p[0],y:p[1]}) {
+        Some(s)=>Err(format!("spot ({}, {}) muito perto do spot ({}, {}) da {map}: precisa de pelo menos {} tiles entre spots (helpers se atrapalham)",p[0],p[1],s.x,s.y,zen_core::spots::OWN_SPACING+1)),
+        None=>Ok(()),
+    }
+}
+
+/// Limpa spots colados no catálogo deste PC (fica o F1 de algum char; senão o mais antigo).
+pub(super) fn dedupe_catalogs(cfg:&mut AgentConfig)->Vec<String> {
+    let mut removed=Vec::new();
+    let mut maps:Vec<String>=cfg.catalog_maps.keys().cloned().collect();
+    maps.push("Kanturu".into());
+    for map in maps {
+        let Some(world)=zen_core::spots::world_for_name(&map) else {continue};
+        let homes:Vec<zen_core::spots::Spot>=cfg.spots.iter()
+            .filter(|(n,_)|home_dest(cfg,n).name()==map)
+            .map(|(_,[x,y])|zen_core::spots::Spot{world,x:*x,y:*y}).collect();
+        let list=if map=="Kanturu" {cfg.catalog.clone()} else {cfg.catalog_maps.get(&map).cloned().unwrap_or_default()};
+        let entries:Vec<_>=list.iter().enumerate().map(|(i,[x,y])|zen_core::spots::CatalogSpot{spot:zen_core::spots::Spot{world,x:*x,y:*y},priority:i as u32}).collect();
+        let (_,gone)=zen_core::spots::spread(entries,&homes);
+        if gone.is_empty() {continue}
+        let keep=|p:&[i32;2]|!gone.iter().any(|g|g.x==p[0]&&g.y==p[1]);
+        if map=="Kanturu" {cfg.catalog.retain(keep)} else if let Some(v)=cfg.catalog_maps.get_mut(&map) {v.retain(keep)}
+        removed.extend(gone.iter().map(|g|format!("{map} ({}, {})",g.x,g.y)));
+    }
+    removed
+}
+
 pub(super) fn catalog_here(cfg:&mut AgentConfig,map:&str,p:[i32;2])->Result<(usize,bool),String> {
     if map=="Lorencia" {return Err("Lorencia é cidade: sem spots de farm".into())}
+    check_spacing(cfg,map,p)?;
     if map=="Kanturu" {
         let (id,new,_)=catalog_add(cfg,p);return Ok((id,new))
     }
@@ -158,6 +192,7 @@ pub(super) fn save_spot_snapshot(id:u64,char_name:String,snap:Option<Snap>,cfg:&
         zen_agent::spot_service::request(&char_name,spot,false)?;
         let saved=(||->Result<String,String>{
             if map=="Kanturu" {
+                check_spacing(cfg,"Kanturu",[x,y])?;
                 can_assign(cfg,&char_name,[x,y])?;
                 let (id,_,_)=catalog_add(cfg,[x,y]);
                 cfg.spots.insert(char_name.clone(),[x,y]);cfg.arena.retain(|n|n!=&char_name);cfg.spot_maps.remove(&char_name);

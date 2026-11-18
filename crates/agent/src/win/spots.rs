@@ -297,6 +297,9 @@ fn recover_with(
     let current_alt = group::active(name).filter(|a| a.home == home && a.spot.world != home.world).map(|a| a.spot);
     // Spots desativados no painel saem da busca (o pedido explícito `first` fica).
     catalog.retain(|c| c.spot == first || !directory.is_disabled(c.spot));
+    // Spots colados (de PCs diferentes) contam como um só.
+    let homes: Vec<Spot> = directory.members.iter().filter_map(|m| m.home).collect();
+    catalog = zen_core::spots::spread(catalog, &homes).0;
     let mut choices = zen_core::spots::search_order(first, home, current_alt, &catalog, &rules, &dist);
     // Desativar fallback limita os destinos; nunca contorna reserva ou ocupação.
     if !cfg.spot_fallback || keep_owned || cfg.locked_spots.iter().any(|n| n == name) {
@@ -466,6 +469,8 @@ pub fn manual_candidates(cfg: &AgentConfig, world: u8) -> Result<Vec<Spot>, Stri
         }
     }
     catalog.retain(|c| c.spot.world == world && c.spot.valid() && !directory.is_disabled(c.spot));
+    let homes: Vec<Spot> = directory.members.iter().filter_map(|m| m.home).collect();
+    let mut catalog = zen_core::spots::spread(catalog, &homes).0;
     catalog.sort_by_key(|c| c.priority);
     Ok(catalog.into_iter().map(|c| c.spot).collect())
 }

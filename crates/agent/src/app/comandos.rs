@@ -103,6 +103,9 @@ pub(super) fn handle_command(
                 return vec![err("char não encontrado neste PC")];
             };
             if make_spot {
+                if let Err(e) = check_spacing(cfg, dest.name(), [x, y]) {
+                    return vec![err(&e)];
+                }
                 // Vira o spot do char (Kanturu: catálogo e um dono por spot; Arena: lista à parte).
                 match dest {
                     Dest::Kanturu => {
@@ -270,6 +273,23 @@ pub(super) fn handle_command(
             match rec.start(&char_name, w.pid, w.hwnd, (spot.x, spot.y), dest, "procurar vaga agora (painel)") {
                 Ok(()) => vec![ok(&format!("{char_name}: procurando vaga (confere o spot atual primeiro)"))],
                 Err(e) => vec![err(&e)],
+            }
+        }
+        Command::SetSearchInterval { procura_min, retorno_min } => {
+            let (p, r) = (procura_min.clamp(5, 24 * 60), retorno_min.clamp(5, 24 * 60));
+            cfg.procura_spot_min = p;
+            cfg.retorno_original_min = r;
+            for rules in cfg.farm.values_mut() {
+                rules.retorno_min = r;
+            }
+            let all = cfg.farm.clone();
+            match save_field(move |c| {
+                c.procura_spot_min = p;
+                c.retorno_original_min = r;
+                c.farm = all;
+            }) {
+                Ok(()) => vec![ok(&format!("procura de spot: com tudo lotado, nova busca a cada {p} min; voltar ao original a cada {r} min (todos os chars deste PC)"))],
+                Err(e) => vec![err(&format!("falha ao salvar: {e}"))],
             }
         }
         Command::SearchSpotIn { char_name, world } => {

@@ -168,6 +168,15 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             tracing::warn!(erro = %e, "não gravei o catálogo inicial");
         }
     }
+    // Dono (18/11 20:15): spots colados no catálogo saem (fica o F1 de algum char).
+    let removidos = dedupe_catalogs(&mut cfg);
+    if !removidos.is_empty() {
+        tracing::warn!(removidos = ?removidos, "catálogo: spots colados removidos (mínimo {} tiles entre spots)", zen_core::spots::OWN_SPACING + 1);
+        let (catalog, catalog_maps) = (cfg.catalog.clone(), cfg.catalog_maps.clone());
+        if let Err(e) = save_field(move |c| { c.catalog = catalog; c.catalog_maps = catalog_maps; }) {
+            tracing::warn!(erro = %e, "não gravei o catálogo limpo");
+        }
+    }
     }
     let mut rec = Recovery::new();
     let mut ks: std::collections::HashMap<String,(zen_core::spots::Spot,zen_core::ks::Analysis)> = Default::default();
@@ -535,8 +544,10 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 rec.full_until.remove(&name);
             } else if matches!(&r, Err(e) if e.starts_with("nenhum spot livre confirmado")) {
                 // Tudo lotado: o char já foi para a safe (spots.rs). Nova volta pelo catálogo só
-                // daqui a ~20 min, com horário sorteado para não parecer robô.
-                let at = now() + random_between(1080, 1320); // ~20 min sorteado (dono, 18/11 20:09)
+                // depois do intervalo do painel.
+                // Intervalo do painel (padrão 30 min), sorteado ±10% para não parecer robô.
+                let base = cfg.farm_rules(&name).procura_min.max(5) * 60;
+                let at = now() + random_between(base * 9 / 10, base * 11 / 10);
                 rec.full_until.insert(name.clone(), at);
                 let m = format!("{name}: todos os spots lotados; esperando na safe, nova busca às {}", chrono_hhmm(at));
                 tracing::warn!(char = %name, nova_busca = %chrono_hhmm(at), "spots lotados: espera na safe");

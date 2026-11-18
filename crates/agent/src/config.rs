@@ -55,6 +55,9 @@ pub struct AgentConfig {
     pub mapas_alternativos_padrao: Vec<String>,
     /// Minutos num mapa alternativo antes de tentar o original (padrão de todos os chars).
     pub retorno_original_min: u64,
+    /// Todos os spots lotados: minutos na safe antes de procurar de novo (painel, todos os PCs).
+    #[serde(default = "procura_padrao")]
+    pub procura_spot_min: u64,
     /// Grava a janela do char (1 quadro a cada `gravacao_intervalo_s`, metade do tamanho) enquanto
     /// ele está fora do spot num "ir até" (invasão). Pasta gravacoes\, guardada `gravacao_manter_h`.
     pub gravar_invasoes: bool,
@@ -161,7 +164,8 @@ impl Default for AgentConfig {
             chat_enabled: false,
             server_notices: true,
             mapas_alternativos_padrao: vec!["Arena".into()],
-            retorno_original_min: 20,
+            retorno_original_min: 30,
+            procura_spot_min: 30,
             gravar_invasoes: true,
             gravacao_intervalo_s: 2,
             gravacao_manter_h: 48,
@@ -217,10 +221,7 @@ impl AgentConfig {
     pub fn farm_rules(&self, name: &str) -> zen_core::spots::FarmRules {
         if let Some(r) = self.farm.get(name) {
             let mut r = r.clone();
-            // Dono (18/11 20:09): procura de spot a cada 20 min. 60 era o padrão antigo gravado.
-            if r.retorno_min == 60 {
-                r.retorno_min = 20;
-            }
+            r.procura_min = self.procura_spot_min.max(5);
             return r;
         }
         zen_core::spots::FarmRules {
@@ -228,6 +229,7 @@ impl AgentConfig {
             retorno_min: self.retorno_original_min.max(1),
             alternativos: self.spot_fallback,
             sondagem: true,
+            procura_min: self.procura_spot_min.max(5),
         }
     }
 
@@ -417,4 +419,8 @@ fn default_true_cfg() -> bool {
 
 fn default_raven_min() -> u8 {
     25
+}
+
+fn procura_padrao() -> u64 {
+    zen_core::spots::PROCURA_PADRAO_MIN
 }

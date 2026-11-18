@@ -282,6 +282,12 @@ pub enum Command {
     SearchSpot {
         char_name: String,
     },
+    /// Intervalos da procura de spot, iguais para todos os chars do PC (o painel manda para
+    /// todos os PCs): `procura_min` = espera com tudo lotado; `retorno_min` = tentar o original.
+    SetSearchInterval {
+        procura_min: u64,
+        retorno_min: u64,
+    },
     /// Busca manual (painel): percorre os spots do catálogo deste mapa até achar vaga.
     /// Tem prioridade sobre as regras automáticas e não muda o mapa/spot original.
     SearchSpotIn {

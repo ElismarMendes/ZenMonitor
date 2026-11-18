@@ -451,6 +451,7 @@ function renderDrawer() {
       <button onclick="cmd('${esc(M)}',{cmd:'relock_ram',char_name:'${esc(N)}'},'reler memória')">Reler memória</button></div>
     ${farmHtml(c)}
     ${manualHtml(c)}
+    ${procuraHtml(c)}
     <h2>Automação deste personagem</h2>
     ${pcAuto(c) === false ? `<div class="kpi" style="border-color:#7a2a35;margin-bottom:8px"><div class="l" style="color:#ff8c9b">A automação do computador ${esc(M)} está DESLIGADA: nenhum char dele volta ao spot nem faz Fortuna, mesmo com a chave abaixo ligada.</div><button class="pri" style="margin-top:6px" onclick="cmd('${esc(M)}',{cmd:'set_config',automation_enabled:true},'automação do PC ligada')">Ligar a automação deste computador</button></div>` : ""}
     ${tog(c.automation, set("set_char_automation", !c.automation), "Automação (teclado/mouse)")}
@@ -527,7 +528,7 @@ function farmHtml(c) {
     <span>Mapa atual</span><span>${esc(mapOf(c))} ${c.pos ? `(${c.pos.join(", ")})` : ""}${minNote(c)}</span>
     <span>Situação</span><span>${temp ? "farmando em mapa alternativo" : "no mapa original"}</span>
     <span>Próxima tentativa de voltar</span><span>${temp ? (remaining == null ? "—" : remaining === 0 ? "pendente" : fmtDur(remaining)) : "—"}</span></div>
-    <div class="note" style="margin:6px 0">Ordem: spot original → outros spots do mapa original → mapas abaixo, na ordem → todos lotados: espera na safe e tenta em ~20 min. O mapa original só muda com "Salvar e fixar retorno" (F1).</div>
+    <div class="note" style="margin:6px 0">Ordem: spot original → outros spots do mapa original → mapas abaixo, na ordem → todos lotados: espera na safe e tenta de novo em ~${f.procura_min || 30} min. O mapa original só muda com "Salvar e fixar retorno" (F1).</div>
     ${tog2(f.alternativos, `farmSet('${K}','alternativos',${!f.alternativos})`, "Procurar em mapas alternativos")}
     ${rows}
     <div class="btns"><select onchange="farmAdd('${K}',this.value)"><option value="">+ adicionar mapa…</option>${opts}</select></div>
@@ -570,6 +571,20 @@ function manualHtml(c) {
       <button class="dang" ${running ? "" : "disabled"} onclick="cmd('${M}',{cmd:'cancel_spot_search',char_name:'${N}'},'cancelar busca')">Cancelar busca</button></div>
     <div class="note">Percorre os spots desse mapa, do mais perto ao mais longe, até achar vaga (para no primeiro livre). Passa na frente das esperas e do retorno automático; não troca de mapa sozinho e não muda o mapa original — a volta ao original a cada ${esc(String(farmOf(c).retorno_min))} min continua valendo.</div>
     ${prog}`;
+}
+// Procura de spot (dono, 18/11 20:15): um lugar só, vale para todos os chars de todos os PCs.
+function procuraHtml(c) {
+  const f = c.farm || {}, p = f.procura_min || 30, r = f.retorno_min || 30;
+  return `<h2>Procura de spot (todos os PCs)</h2>
+    <div class="sw"><span>Tudo lotado: procurar de novo a cada</span><span><input id="pc_proc" type="number" min="5" max="1440" style="width:70px" value="${p}"> min</span></div>
+    <div class="sw"><span>Em mapa alternativo: tentar o original a cada</span><span><input id="pc_ret" type="number" min="5" max="1440" style="width:70px" value="${r}"> min</span></div>
+    <div class="btns"><button class="pri" onclick="procuraSalvar()">Salvar para todos os PCs</button></div>
+    <div class="note">O horário real é sorteado ±10% para não parecer robô. Spots muito cheios: use 30 min ou mais.</div>`;
+}
+async function procuraSalvar() {
+  const p = Math.max(5, +$("pc_proc").value || 30), r = Math.max(5, +$("pc_ret").value || 30);
+  const ms = (S.machines || []).filter(m => m.connected !== false).map(m => m.name);
+  for (const m of ms) await cmd(m, { cmd: "set_search_interval", procura_min: p, retorno_min: r }, `procura ${p}/${r} min`);
 }
 function tog2(on, c2, label) { return `<div class="sw"><span>${label}</span><button class="tg ${on ? "on" : ""}" onclick="${c2}"></button></div>`; }
 async function shot(m, n) {

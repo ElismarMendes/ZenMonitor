@@ -197,6 +197,10 @@ impl Directory {
         for entry in entries {
             self.add_catalog(entry);
         }
+        // Spots colados (de PCs diferentes ou cadastrados por engano) viram um só.
+        let homes: Vec<Spot> = self.members.iter().filter_map(|m| m.home).collect();
+        let (kept, _) = spread(std::mem::take(&mut self.catalog), &homes);
+        self.catalog = kept;
     }
     pub fn remove_machine(&mut self, machine: &str) {
         // Lembra os nomes como próprios, mas uma remoção explícita libera seus spots.
@@ -322,11 +326,20 @@ pub struct FarmRules {
     /// Na hora da reavaliação, ir até o mapa original conferir pessoalmente. Desligado = só
     /// reavalia quando houver vaga confirmada por outra fonte (hoje não há: fica onde está).
     pub sondagem: bool,
+    /// Todos os spots lotados: minutos esperando na safe antes de procurar de novo (vale para
+    /// todos os chars do PC; o painel muda em todos os PCs de uma vez).
+    #[cfg_attr(feature = "serde", serde(default = "procura_padrao"))]
+    pub procura_min: u64,
+}
+
+pub const PROCURA_PADRAO_MIN: u64 = 30;
+fn procura_padrao() -> u64 {
+    PROCURA_PADRAO_MIN
 }
 
 impl Default for FarmRules {
     fn default() -> Self {
-        Self { mapas: vec!["Arena".into()], retorno_min: 20, alternativos: true, sondagem: true }
+        Self { mapas: vec!["Arena".into()], retorno_min: PROCURA_PADRAO_MIN, alternativos: true, sondagem: true, procura_min: PROCURA_PADRAO_MIN }
     }
 }
 
@@ -711,5 +724,52 @@ mod espacamento_tests {
         d.register(Member { machine: "RAG".into(), name: "xWizard".into(), home: Some(Spot { world: 38, x: 84, y: 236 }), active: Some(Spot { world: 7, x: 53, y: 57 }) });
         assert_eq!(d.owner(Spot { world: 7, x: 48, y: 57 }, "0MAGIC", 0), Some("xWizard"));
         assert_eq!(d.owner(Spot { world: 7, x: 47, y: 70 }, "0MAGIC", 0), None, "13 tiles: pode");
+    }
+}
+
+/// Spot a menos de `OWN_SPACING` tiles (e a mais de 2, que é o mesmo spot) de outro da lista.
+pub fn too_close(list: &[Spot], p: Spot) -> Option<Spot> {
+    list.iter().copied().find(|s| s.near(p, OWN_SPACING) && !s.near(p, ARRIVAL_RADIUS))
+}
+
+/// Tira do catálogo os spots colados (até `OWN_SPACING` tiles de outro do mesmo mapa). Fica o
+/// spot principal (F1) de algum char; entre os outros, o de menor prioridade (o mais antigo).
+/// Devolve (catálogo limpo, removidos).
+pub fn spread(entries: Vec<CatalogSpot>, homes: &[Spot]) -> (Vec<CatalogSpot>, Vec<Spot>) {
+    let mut order: Vec<CatalogSpot> = entries;
+    order.sort_by_key(|c| (!homes.iter().any(|h| h.near(c.spot, ARRIVAL_RADIUS)), c.spot.world, c.priority, c.spot.x, c.spot.y));
+    let mut kept: Vec<CatalogSpot> = Vec::new();
+    let mut removed = Vec::new();
+    for c in order {
+        if kept.iter().any(|k| k.spot.near(c.spot, OWN_SPACING)) && !homes.iter().any(|h| h.near(c.spot, ARRIVAL_RADIUS)) {
+            removed.push(c.spot);
+        } else {
+            kept.push(c);
+        }
+    }
+    kept.sort_by_key(|c| (c.spot.world, c.priority, c.spot.x, c.spot.y));
+    (kept, removed)
+}
+
+#[cfg(test)]
+mod spread_tests {
+    use super::*;
+    fn c(x: i32, y: i32, p: u32) -> CatalogSpot { CatalogSpot { spot: Spot { world: 7, x, y }, priority: p } }
+    #[test]
+    fn arena_tres_colados_vira_um_e_principal_tem_preferencia() {
+        let cat = vec![c(47, 70, 0), c(48, 57, 1), c(53, 57, 2), c(47, 57, 3), c(31, 57, 4)];
+        let (k, r) = spread(cat.clone(), &[]);
+        assert_eq!(k.iter().map(|c| (c.spot.x, c.spot.y)).collect::<Vec<_>>(), vec![(47, 70), (48, 57), (31, 57)]);
+        assert_eq!(r.len(), 2);
+        let (k, _) = spread(cat, &[Spot { world: 7, x: 53, y: 57 }]);
+        assert!(k.iter().any(|c| (c.spot.x, c.spot.y) == (53, 57)) && !k.iter().any(|c| (c.spot.x, c.spot.y) == (48, 57)));
+    }
+    #[test]
+    fn trava_spot_perto_demais_mas_aceita_o_mesmo_tile() {
+        let l = [Spot { world: 7, x: 48, y: 57 }];
+        assert_eq!(too_close(&l, Spot { world: 7, x: 53, y: 57 }), Some(l[0]));
+        assert_eq!(too_close(&l, Spot { world: 7, x: 49, y: 58 }), None, "a 1 tile é o mesmo spot (atualiza)");
+        assert_eq!(too_close(&l, Spot { world: 7, x: 47, y: 70 }), None);
+        assert_eq!(too_close(&l, Spot { world: 38, x: 53, y: 57 }), None, "outro mapa");
     }
 }
