@@ -254,12 +254,14 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
                     continue 'hold;
                 }
             }
-            if still >= 3 && !storage_open(hwnd) && npc_dialog_open(hwnd) {
+            if still >= 3 && !storage_open(hwnd) && (npc_dialog_open(hwnd) || inventory_open(hwnd)) {
                 h.release();
                 drop(h);
-                status(format!("janela de NPC abriu no caminho em {p:?}: fechando (ESC) e mudando a direção"));
+                status(format!("janela de NPC/loja abriu no caminho em {p:?}: fechando (ESC) e mudando a direção"));
+                tracing::warn!(hwnd, posicao = ?p, npc = npc_dialog_open(hwnd), inventario = inventory_open(hwnd), "navegação: janela de NPC/loja aberta no caminho");
                 learn_npc(t.world, tile_at_px(p, cur_px));
                 close_npc_dialog(hwnd);
+                close_stray_shop(hwnd);
                 vault_opens += 1;
                 detours += 1;
                 angle = [0.9, -0.9, 1.4, -1.4, 0.5, -0.5][(vault_opens as usize) % 6];
@@ -499,6 +501,7 @@ pub fn prepare_route_retry(hwnd: isize, status: &dyn Fn(String)) -> Result<(),St
     status("movimento não confirmado: fechando obstruções antes de uma retentativa".into());
     force_close_storage(hwnd);
     close_npc_dialog(hwnd);
+    close_stray_shop(hwnd);
     if map_open(hwnd) { input::run(hwnd,&[Step::Key(VK_M)])?;sleep(300); }
     Ok(())
 }

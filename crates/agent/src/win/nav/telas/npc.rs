@@ -157,3 +157,21 @@ pub(in crate::win::nav) fn close_npc_dialog(hwnd: isize) -> bool {
     }
     handled && !npc_dialog_open(hwnd)
 }
+
+/// Loja de NPC que anda (Wandering Merchant, 18/11 17:58 em Lorencia): o clique de andar caiu
+/// nele, abriu "Merchant" + inventário, e nenhum modelo de janela de NPC reconheceu. O
+/// inventário aberto no meio de uma caminhada nunca é de propósito: ESC até fechar.
+pub(in crate::win::nav) fn close_stray_shop(hwnd: isize) -> bool {
+    let mut handled = false;
+    for _ in 0..3 {
+        if !inventory_open(hwnd) {
+            return handled;
+        }
+        if input::run(hwnd, &[Step::Key(0x1B)]).is_err() {
+            return false;
+        }
+        handled = true;
+        sleep(400);
+    }
+    handled && !inventory_open(hwnd)
+}
