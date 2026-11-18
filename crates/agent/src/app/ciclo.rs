@@ -230,7 +230,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             }
             let reply = {
                 // Só operações que editam spots precisam serializar com o salvamento.
-                let edits_spots = matches!(&c, Command::GoTo { .. } | Command::AssignSpot { .. } | Command::DeleteSpot { .. } | Command::SetSpotLock { .. } | Command::SaveSpot { .. } | Command::SetFarm { .. } | Command::ReturnToOriginal { .. });
+                let edits_spots = matches!(&c, Command::GoTo { .. } | Command::AssignSpot { .. } | Command::DeleteSpot { .. } | Command::SetSpotLock { .. } | Command::SaveSpot { .. } | Command::SetFarm { .. } | Command::ReturnToOriginal { .. } | Command::SearchSpot { .. } | Command::PostponeReturn { .. });
                 let edit = SPOT_EDIT.lock().unwrap_or_else(|e| e.into_inner());
                 sync_saved_spots(&mut cfg, &spot_changed_rx);
                 let _edit = if edits_spots { Some(edit) } else { drop(edit); None };
@@ -275,6 +275,24 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                     }
                 }
                 let _ = out_tx.try_send(m);
+            }
+        }
+        // "Ir até" na fila: sai assim que o PC liberar (até 3 min depois do pedido).
+        if !rec.is_busy() && !rec.goto_queue.is_empty() {
+            let (n, world, x, y, at) = rec.goto_queue.remove(0);
+            if now().saturating_sub(at) <= 180 {
+                if let (Some(&hw), Some(dest)) = (janelas.get(&n), zen_agent::win::nav::dest_of_world(world)) {
+                    match rec.start_goto(&n, hw, world, dest, (x, y)) {
+                        Ok(()) => tracing::warn!(char = %n, "ir até ({x}, {y}) saiu da fila"),
+                        Err(e) => {
+                            rec.hold.remove(&n);
+                            let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok: false, message: format!("{n}: ir até ({x}, {y}) da fila falhou: {e}") });
+                        }
+                    }
+                }
+            } else {
+                rec.hold.remove(&n);
+                let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok: false, message: format!("{n}: ir até ({x}, {y}) desistiu: o PC ficou ocupado por mais de 3 min") });
             }
         }
         // Gravação das idas a invasões ("ir até"): um quadro a cada poucos segundos.
@@ -987,6 +1005,11 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                         if text.contains("Ice Queen Invasion starts in 3") && ice_until.is_none() {
                             if let Some(&hw) = janelas.get(&ice) {
                                 rec.hold.insert(ice.clone(), "foi até o Ice Queen (Devias 22,100): volta sozinho quando acabar".into());
+                                if rec.is_busy() {
+                                    rec.goto_queue.push((ice.clone(), 3, 22, 100, now()));
+                                    ice_until = Some((ice.clone(), now() + 600));
+                                    tracing::warn!(char = %ice, "Ice Queen: PC ocupado; ida na fila");
+                                } else {
                                 match rec.start_goto(&ice, hw, 3, zen_agent::win::nav::Dest::Devias, (22, 100)) {
                                     Ok(()) => {
                                         tracing::warn!(char = %ice, "Ice Queen: indo para Devias (22,100)");
@@ -996,6 +1019,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                                         rec.hold.remove(&ice);
                                         tracing::warn!(char = %ice, erro = %e, "Ice Queen: não saiu");
                                     }
+                                }
                                 }
                             }
                         }

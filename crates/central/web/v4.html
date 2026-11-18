@@ -172,6 +172,9 @@ function catalogFor(w) {
   const d=S.spot_directory;
   return d ? (d.catalog||[]).filter(e=>e.spot.world===w).map(e=>({ ...e.spot,n:e.priority+1,machine:Object.entries(d.sources||{}).find(([,v])=>v.some(c=>spotNear(c.spot,e.spot,0)))?.[0]||'' })).sort((a,b)=>a.n-b.n||a.x-b.x||a.y-b.y) : (S.catalog||[]).filter(p=>(p.world||38)===w).map(p=>({...p,world:w}));
 }
+// Última leitura de cada spot (ocupação vista por algum char nosso a até 12 tiles). Fica só
+// na memória do painel: informação antiga nunca vale como confirmação em tempo real.
+const SPOT_SEEN = {};
 function spotState(sp) {
   const d=S.spot_directory, chars=S.chars||[], now=S.now||Math.floor(Date.now()/1000), names=groupNames();
   const members=(d?.members||[]).filter(m=>[m.home,m.active].some(p=>spotNear(p,sp)));
@@ -179,10 +182,14 @@ function spotState(sp) {
   const legacy=chars.filter(c=>c.spot&&spotNear({world:WORLD_OF[c.spot_map||'Kanturu'],x:c.spot[0],y:c.spot[1]},sp));
   const owners=[...new Map([...members,...leases,...legacy].map(m=>[m.machine+'|'+m.name,m])).values()];
   const observers=chars.filter(c=>!c.alerts?.some(a=>a==='Offline'||a==='Dc') && WORLD_OF[mapOf(c)]===sp.world && c.pos && Math.max(Math.abs(c.pos[0]-sp.x),Math.abs(c.pos[1]-sp.y))<=12 && Array.isArray(c.nearby));
-  const foreign=[...new Set(observers.flatMap(c=>c.nearby.filter(o=>o.kind==='player'&&!names.has(o.name.toLowerCase())&&Math.max(Math.abs(o.x-sp.x),Math.abs(o.y-sp.y))<=6).map(o=>o.name)))];
-  if(owners.length)return {kind:'info',label:'Nosso · reservado',color:'#3b9eff',owners,foreign};
-  if(foreign.length)return {kind:'bad',label:'Jogador de fora',color:'#f2546a',owners,foreign};
-  return {kind:observers.length?'ok':'mute',label:observers.length?'Livre (observado)':'Sem leitura recente',color:observers.length?'#2fd27a':'#6b7d90',owners,foreign};
+  const foreign=[...new Set(observers.flatMap(c=>c.nearby.filter(o=>o.kind==='player'&&!names.has(o.name.toLowerCase())&&Math.max(Math.abs(o.x-sp.x),Math.abs(o.y-sp.y))<=12).map(o=>o.name)))];
+  const key=sp.world+':'+sp.x+':'+sp.y;
+  if(observers.length)SPOT_SEEN[key]={at:now,foreign,by:observers.map(c=>c.name)};
+  const last=SPOT_SEEN[key], age=last?now-last.at:null;
+  const seen=age==null?'nunca verificado nesta sessão do painel':age<5?'verificado agora':'verificado há '+fmtDur(age)+(last.foreign.length?' (ocupado por '+last.foreign.join(', ')+')':' (livre)');
+  if(owners.length)return {kind:'info',label:'Nosso · reservado',color:'#3b9eff',owners,foreign,seen};
+  if(foreign.length)return {kind:'bad',label:'Jogador de fora',color:'#f2546a',owners,foreign,seen};
+  return {kind:observers.length?'ok':'mute',label:observers.length?'Livre (observado agora)':'Desconhecido (sem leitura agora)',color:observers.length?'#2fd27a':'#6b7d90',owners,foreign,seen};
 }
 function spotSituation(c) {
   const raw=c.auto_status||'', ks=raw.match(/KS(?: possível)?[\s\S]*?(?:permaneço no spot|$)/)?.[0];
@@ -489,7 +496,9 @@ function farmHtml(c) {
     <div class="sw"><span>Tentar voltar ao original a cada</span><span><input type="number" min="5" max="1440" style="width:70px" value="${f.retorno_min}" onchange="farmSet('${K}','retorno_min',+this.value)"> min</span></div>
     ${tog2(f.sondagem, `farmSet('${K}','sondagem',${!f.sondagem})`, "Ir conferir pessoalmente (sondagem)")}
     <div class="btns"><button class="pri" ${changed ? "" : "disabled"} onclick="farmSave('${M}','${N}')">Salvar navegação e farm</button>
-      <button onclick="cmd('${M}',{cmd:'return_to_original',char_name:'${N}'},'voltar ao mapa original')">Voltar ao mapa original agora</button></div>`;
+      <button onclick="cmd('${M}',{cmd:'return_to_original',char_name:'${N}'},'voltar ao mapa original')">Voltar ao mapa original agora</button>
+      <button onclick="cmd('${M}',{cmd:'search_spot',char_name:'${N}'},'procurar vaga')">Procurar vaga agora</button>
+      ${temp ? `<button onclick="cmd('${M}',{cmd:'postpone_return',char_name:'${N}'},'adiar volta')">Adiar a próxima tentativa</button>` : ""}</div>`;
 }
 function tog2(on, c2, label) { return `<div class="sw"><span>${label}</span><button class="tg ${on ? "on" : ""}" onclick="${c2}"></button></div>`; }
 async function shot(m, n) {
@@ -570,7 +579,7 @@ VIEWS.maps = () => {
     const state=spotState(sp), owner=state.owners[0], live=owner&&(S.chars||[]).find(c=>c.machine===owner.machine&&c.name===owner.name);
     const names=state.owners.map(m=>esc(m.name)+' · '+esc(m.machine)).join('<br>');
     const action=owner ? live ? `<button class="sm" onclick="cmd('${esc(live.machine)}',{cmd:'set_spot_lock',char_name:'${esc(live.name)}',locked:${!live.spot_locked}},'trava do spot')">${live.spot_locked?'destravar':'travar'}</button>` : 'reservado' : sp.machine ? `<button class="sm dang" onclick="if(confirm('Excluir spot do catálogo?'))cmd('${esc(sp.machine)}',{cmd:'delete_spot',x:${sp.x},y:${sp.y},world:${world}},'excluir spot')">excluir</button>` : '';
-    return '<tr><td>'+sp.n+'<div class="note">'+world+':'+sp.x+':'+sp.y+'</div></td><td class="num">'+sp.x+', '+sp.y+'</td><td><span class="st '+state.kind+'">'+state.label+'</span><div class="note">'+names+(state.foreign.length?'<br>Presença externa: '+state.foreign.map(esc).join(', '):'')+'</div></td><td>'+action+'</td></tr>';
+    return '<tr><td>'+sp.n+'<div class="note">'+world+':'+sp.x+':'+sp.y+'</div></td><td class="num">'+sp.x+', '+sp.y+'</td><td><span class="st '+state.kind+'">'+state.label+'</span><div class="note">'+names+(state.foreign.length?'<br>Presença externa: '+state.foreign.map(esc).join(', '):'')+'<br>'+esc(state.seen)+'</div></td><td>'+action+'</td></tr>';
   }).join('')+'</tbody></table>';
   const t = terrs[world];
   return `<h1>Mapas</h1><div class="sub">Terreno lido do cliente do jogo (verde = andável, azul = zona segura). Todos os mapas do M foram conferidos no jogo (11/11) e aceitam "ir até". F1 fixa o retorno; F2 cataloga sem trocar o retorno.</div>

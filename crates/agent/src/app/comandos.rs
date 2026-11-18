@@ -157,6 +157,12 @@ pub(super) fn handle_command(
             }
             // Só ir: o char fica lá; a volta automática não puxa de volta até "Voltar ao spot".
             rec.hold.insert(char_name.clone(), format!("foi até ({x}, {y}) pelo painel: não volta sozinho até \"Voltar ao spot\""));
+            if rec.is_busy() {
+                // Outra automação do PC em andamento: entra na fila e sai assim que liberar.
+                rec.goto_queue.retain(|q| q.0 != char_name);
+                rec.goto_queue.push((char_name.clone(), world, x, y, now()));
+                return vec![ok(&format!("{char_name}: PC ocupado com outra automação; \"ir até ({x}, {y})\" na fila (sai em até 3 min)"))];
+            }
             match rec.start_goto(&char_name, w.hwnd, world, dest, (x, y)) {
                 Ok(()) => vec![ok(&format!("{char_name}: indo até ({x}, {y})"))],
                 Err(e) => {
@@ -244,6 +250,35 @@ pub(super) fn handle_command(
             rec.hold.remove(&char_name);
             match rec.start(&char_name, w.pid, w.hwnd, (home.x, home.y), dest, "voltar ao mapa original (painel)") {
                 Ok(()) => vec![ok(&format!("{char_name}: voltando ao mapa original {} ({}, {})", dest.name(), home.x, home.y))],
+                Err(e) => vec![err(&e)],
+            }
+        }
+        Command::SearchSpot { char_name } => {
+            let Some(spot) = zen_agent::spot_service::effective(cfg, &char_name) else {
+                return vec![err("este char não tem spot (F1)")];
+            };
+            let Some(w) = access.list_windows().into_iter().find(|w| zen_core::title::parse(&w.title).name.as_deref() == Some(char_name.as_str())) else {
+                return vec![err("char não encontrado neste PC")];
+            };
+            let Some(dest) = zen_agent::win::nav::Dest::from_world(spot.world) else {
+                return vec![err("mapa do spot sem teleporte calibrado")];
+            };
+            let _ = zen_agent::spot_service::clear_active(&char_name);
+            rec.hold.remove(&char_name);
+            rec.full_until.remove(&char_name);
+            match rec.start(&char_name, w.pid, w.hwnd, (spot.x, spot.y), dest, "procurar vaga agora (painel)") {
+                Ok(()) => vec![ok(&format!("{char_name}: procurando vaga (confere o spot atual primeiro)"))],
+                Err(e) => vec![err(&e)],
+            }
+        }
+        Command::PostponeReturn { char_name } => {
+            let Some(mut a) = zen_agent::spot_service::active(&char_name).filter(|a| a.spot.world != a.home.world && a.retry_at > 0) else {
+                return vec![err("não está em mapa alternativo: nada para adiar")];
+            };
+            let r = cfg.farm_rules(&char_name);
+            a.retry_at = a.retry_at.max(now()) + r.retorno_min * 60;
+            match zen_agent::spot_service::set_active(&char_name, a) {
+                Ok(()) => vec![ok(&format!("{char_name}: próxima tentativa de voltar ao original adiada em {} min", r.retorno_min))],
                 Err(e) => vec![err(&e)],
             }
         }

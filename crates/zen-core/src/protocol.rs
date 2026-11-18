@@ -269,6 +269,14 @@ pub enum Command {
     ReturnToOriginal {
         char_name: String,
     },
+    /// Refaz a busca de vaga agora (confere o spot atual; ocupado -> próximo da ordem).
+    SearchSpot {
+        char_name: String,
+    },
+    /// Adia só a próxima tentativa de voltar ao mapa original (mais um intervalo).
+    PostponeReturn {
+        char_name: String,
+    },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
