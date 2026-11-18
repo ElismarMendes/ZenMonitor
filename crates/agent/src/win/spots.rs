@@ -11,6 +11,8 @@ struct Arrival {
     epoch: u64,
     retain_owned: bool,
     checks: ApproachChecks,
+    /// Busca manual: prazo para chegar a ESTE spot (não insiste num spot inacessível).
+    deadline: Option<std::time::Instant>,
 }
 #[derive(Default)]
 struct ApproachChecks { entered: bool }
@@ -71,6 +73,9 @@ pub fn check_movement_epoch() -> Result<(), String> {
         if group::epoch(&a.name) != a.epoch {
             return Err("SPOT_CANCELLED: spot alterado pelo dono durante o trajeto".into());
         }
+        if a.deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            return Err(format!("SPOT_TIMEOUT: {} não alcançado no prazo", a.spot.id()));
+        }
         Ok(())
     })
 }
@@ -120,6 +125,17 @@ fn guarded<T>(
     retain_owned: bool,
     f: impl FnOnce() -> T,
 ) -> T {
+    guarded_until(name, spot, friendly, epoch, retain_owned, None, f)
+}
+fn guarded_until<T>(
+    name: &str,
+    spot: Spot,
+    friendly: Vec<String>,
+    epoch: u64,
+    retain_owned: bool,
+    deadline: Option<std::time::Instant>,
+    f: impl FnOnce() -> T,
+) -> T {
     struct Restore(Option<Arrival>);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -134,6 +150,7 @@ fn guarded<T>(
             epoch,
             retain_owned,
             checks: ApproachChecks::default(),
+            deadline,
         }))
     }));
     f()
@@ -453,6 +470,9 @@ pub fn manual_candidates(cfg: &AgentConfig, world: u8) -> Result<Vec<Spot>, Stri
     Ok(catalog.into_iter().map(|c| c.spot).collect())
 }
 
+/// Prazo para chegar a cada spot na busca manual (o mais longe do teste levou ~25 s).
+const MANUAL_SPOT_TIMEOUT_S: u64 = 120;
+
 pub fn search_map(hwnd: isize, name: &str, world: u8, status: &dyn Fn(String)) -> Result<String, String> {
     let generation = group::epoch(name);
     let cfg = AgentConfig::load_file().map_err(|e| e.to_string())?;
@@ -519,14 +539,17 @@ pub fn search_map(hwnd: isize, name: &str, world: u8, status: &dyn Fn(String)) -
             reasons.push(format!("{}: {e}", choice.id()));
             continue;
         }
-        let attempt = guarded(name, choice, friendly.clone(), generation, false, || {
+        // Teste de 18/11 15:46: preso ~7 min a caminho de 38:183:19 (andava 1 tile a cada 12 s, o
+        // vigia de travamento não disparava). Agora cada spot tem prazo; vencido = inacessível.
+        let prazo = std::time::Instant::now() + std::time::Duration::from_secs(MANUAL_SPOT_TIMEOUT_S);
+        let attempt = guarded_until(name, choice, friendly.clone(), generation, false, Some(prazo), || {
             let mut last = String::new();
             for retry in 0..2 {
                 match nav::recover_to(hwnd, &terrain, (choice.x, choice.y), dest, status) {
                     Ok(message) => return Ok(message),
                     Err(e) => {
                         tracing::warn!(char = name, spot = %choice.id(), retry, motivo = %e, "busca manual: chegada falhou");
-                        if occupied_error(&e) || e.contains("SPOT_UNVERIFIED") || e.contains("SPOT_CANCELLED") || input::manual_mode() {
+                        if occupied_error(&e) || e.contains("SPOT_UNVERIFIED") || e.contains("SPOT_CANCELLED") || e.contains("SPOT_TIMEOUT") || input::manual_mode() {
                             return Err(e);
                         }
                         last = e;
