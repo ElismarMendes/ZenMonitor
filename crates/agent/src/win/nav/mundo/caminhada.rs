@@ -106,7 +106,7 @@ pub(in crate::win::nav) fn final_walk_arrived(pos: (i32, i32), target: (i32, i32
 }
 
 pub(in crate::win::nav) fn walking_route(t: &Terrain, from: (i32,i32), to: (i32,i32), arrival: WalkArrival) -> Option<Vec<(i32,i32)>> {
-    if arrival == WalkArrival::Trainer { npc_route(t, from, to) } else { t.path(from, to) }
+    if arrival == WalkArrival::Trainer { npc_route(t, from, to) } else { t.path(from, to).or_else(|| t.path_escape(from, to)) }
 }
 
 pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {

@@ -860,6 +860,13 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            // Só pontos ligados à cidade a pé (sem bolsos murados como o de (173,114)).
+            let alcance = {
+                let mut src = t.safe_tiles();
+                src.push((116, 127));
+                t.distances_from(&src)
+            };
+            base.retain(|p| alcance[p.1 as usize * 256 + p.0 as usize] != u16::MAX);
             let mut anel: Vec<(i32, i32)> = Vec::new();
             for (i, &p) in base.iter().enumerate() {
                 let q = base[(i + 1) % base.len()];

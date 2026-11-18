@@ -130,6 +130,19 @@ impl Terrain {
     /// Rota em tiles de `from` até `to` (A*, 8 direções, sem cortar quina de parede).
     /// Inclui o destino; não inclui a origem. `None` se não houver caminho.
     pub fn path(&self, from: (i32, i32), to: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        self.path_with(from, to, false)
+    }
+
+    /// Rota de fuga: igual a `path`, mas aceita passar na diagonal entre duas quinas de parede.
+    /// Medido em 18/11 08:15 (Lorencia): o x9901 entrou em (173,114), um bolso de 27 tiles
+    /// separado do resto do mapa por uma parede de 1 tile em x=174; o servidor deixou passar na
+    /// diagonal, mas `path` (que não corta quina) não achava saída e a patrulha travou 3 min.
+    /// Só é usada quando `path` não acha nada.
+    pub fn path_escape(&self, from: (i32, i32), to: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+        self.path_with(from, to, true)
+    }
+
+    fn path_with(&self, from: (i32, i32), to: (i32, i32), cut_corners: bool) -> Option<Vec<(i32, i32)>> {
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;
         if !self.walkable(to.0, to.1) || !self.walkable(from.0, from.1) {
@@ -164,7 +177,7 @@ impl Terrain {
                 if !self.walkable(nx, ny) {
                     continue;
                 }
-                if dx != 0 && dy != 0 && !(self.walkable(x + dx, y) && self.walkable(x, y + dy)) {
+                if !cut_corners && dx != 0 && dy != 0 && !(self.walkable(x + dx, y) && self.walkable(x, y + dy)) {
                     continue;
                 }
                 let ng = gc + if dx != 0 && dy != 0 { 14 } else { 10 };
@@ -251,6 +264,19 @@ mod tests {
         // Diagonal entre duas paredes não pode.
         let t = grid(&[".#", "#."]);
         assert_eq!(t.path((0, 0), (1, 1)), None);
+    }
+
+    #[test]
+    fn fuga_corta_quina_so_quando_preciso() {
+        // Bolso fechado por parede de 1 tile, com passagem só na diagonal (Lorencia 173,114).
+        let t = grid(&["..#..", "..#..", "...#.", "..#.."]);
+        assert_eq!(t.path((0, 0), (4, 0)), None);
+        let p = t.path_escape((0, 0), (4, 0)).expect("sai pela diagonal");
+        assert_eq!(*p.last().unwrap(), (4, 0));
+        assert!(p.iter().all(|&(x, y)| t.walkable(x, y)));
+        // Destino murado de verdade continua sem rota.
+        let t = grid(&["..#..", "..#..", "..#..", "..#.."]);
+        assert_eq!(t.path_escape((0, 0), (4, 0)), None);
     }
 
     #[test]
