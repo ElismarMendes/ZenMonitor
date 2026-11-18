@@ -152,6 +152,8 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
     // Último mapa/posição lidos na tela por char: janela minimizada mostra a posição da
     // memória com este mapa (só se a posição continua perto da última vista na tela).
     let mut last_screen: std::collections::HashMap<String, (String, (i32, i32))> = Default::default();
+    // (desconectado, HP) do último ciclo: a busca manual não sai com o char morto ou caído.
+    let mut char_state: std::collections::HashMap<String, (bool, Option<u32>)> = Default::default();
 
     // Spots de chars gravados antes do catálogo existir entram no catálogo (uma vez).
     {
@@ -233,7 +235,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             }
             let reply = {
                 // Só operações que editam spots precisam serializar com o salvamento.
-                let edits_spots = matches!(&c, Command::GoTo { .. } | Command::AssignSpot { .. } | Command::DeleteSpot { .. } | Command::SetSpotLock { .. } | Command::SaveSpot { .. } | Command::SetFarm { .. } | Command::ReturnToOriginal { .. } | Command::SearchSpot { .. } | Command::PostponeReturn { .. });
+                let edits_spots = matches!(&c, Command::GoTo { .. } | Command::AssignSpot { .. } | Command::DeleteSpot { .. } | Command::SetSpotLock { .. } | Command::SaveSpot { .. } | Command::SetFarm { .. } | Command::ReturnToOriginal { .. } | Command::SearchSpot { .. } | Command::SearchSpotIn { .. } | Command::CancelSpotSearch { .. } | Command::PostponeReturn { .. });
                 let edit = SPOT_EDIT.lock().unwrap_or_else(|e| e.into_inner());
                 sync_saved_spots(&mut cfg, &spot_changed_rx);
                 let _edit = if edits_spots { Some(edit) } else { drop(edit); None };
@@ -278,6 +280,48 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                     }
                 }
                 let _ = out_tx.try_send(m);
+            }
+        }
+        // Busca manual de spot (painel): prioridade sobre as rotinas automáticas e o "ir até".
+        // Morto/desconectado: fica pendente (até 10 min) sem mandar comando nenhum.
+        if !rec.is_busy() && !rec.manual_queue.is_empty() {
+            let (n, world, at) = rec.manual_queue[0].clone();
+            let (dc, hp) = char_state.get(&n).copied().unwrap_or((false, None));
+            let blocked = if !janelas.contains_key(&n) { Some("janela do jogo não encontrada") } else if dc { Some("desconectado") } else if hp == Some(0) { Some("morto") } else { None };
+            match blocked {
+                Some(why) if now().saturating_sub(at) <= 600 => {
+                    if let Some(mut m) = zen_agent::win::spots::manual_progress(&n) {
+                        if m.reason != format!("pendente: {why}") {
+                            m.reason = format!("pendente: {why}");
+                            m.updated = now();
+                            zen_agent::win::spots::set_manual_progress(&n, m);
+                        }
+                    }
+                }
+                Some(why) => {
+                    rec.manual_queue.remove(0);
+                    if let Some(mut m) = zen_agent::win::spots::manual_progress(&n) {
+                        m.state = "erro".into();
+                        m.reason = format!("desistiu: {why} por mais de 10 min");
+                        m.updated = now();
+                        zen_agent::win::spots::set_manual_progress(&n, m);
+                    }
+                    let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok: false, message: format!("{n}: busca manual desistiu ({why} por mais de 10 min)") });
+                }
+                None => {
+                    rec.manual_queue.remove(0);
+                    let hw = janelas[&n];
+                    if let Err(e) = rec.start_manual_search(&n, hw, world) {
+                        rec.manual_running = None;
+                        if let Some(mut m) = zen_agent::win::spots::manual_progress(&n) {
+                            m.state = "erro".into();
+                            m.reason = e.clone();
+                            m.updated = now();
+                            zen_agent::win::spots::set_manual_progress(&n, m);
+                        }
+                        let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok: false, message: format!("{n}: busca manual não começou: {e}") });
+                    }
+                }
             }
         }
         // "Ir até" na fila: sai assim que o PC liberar (até 3 min depois do pedido).
@@ -369,6 +413,38 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 Err(e) => tracing::warn!(char = %name, erro = %e, "AUTOMAÇÃO: recuperação falhou"),
             }
             let hhmm = chrono_hhmm(now());
+            // Busca manual: cancelada/pausada não conta como volta falhada; sem vaga = espera na
+            // safe do mapa escolhido (~1 h, como o lotado normal); achou = farm normal.
+            if rec.manual_running.as_deref() == Some(name.as_str()) {
+                rec.manual_running = None;
+                let msg = match &r { Ok(m) | Err(m) => m.clone() };
+                let shown = match zen_agent::win::spots::manual_progress(&name) {
+                    Some(mut m) => {
+                        if !m.finished() {
+                            m.state = if msg.contains("cancelada") { "cancelada".into() } else if r.is_ok() { "achou".into() } else { "erro".into() };
+                            m.reason = msg.clone();
+                        }
+                        m.current = None;
+                        m.next_dist = None;
+                        m.updated = now();
+                        zen_agent::win::spots::set_manual_progress(&name, m.clone());
+                        m
+                    }
+                    None => Default::default(),
+                };
+                if !ok && (shown.state == "cancelada" || msg.contains("pausada")) {
+                    let _ = zen_agent::win::nav::take_error_shot();
+                    let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok: false, message: format!("{name}: {msg}") });
+                    rec.set_status(&name, format!("{msg} ({hhmm}); automação normal retoma"));
+                    continue;
+                }
+                if !ok && shown.state == "erro" {
+                    if let Some(png) = zen_agent::win::nav::take_error_shot() {
+                        let _ = out_tx.try_send(AgentMsg::Screenshot { id: 0, char_name: format!("{name}-erro"), png_base64: base64::engine::general_purpose::STANDARD.encode(png) });
+                    }
+                }
+                // Sem vaga cai no tratamento de "nenhum spot livre confirmado" abaixo (espera ~1 h).
+            }
             // v4: "ir até" do painel não conta como volta ao spot nem bloqueia a Fortuna.
             if matches!(&r, Ok(m) | Err(m) if m.starts_with("ir até") || m.starts_with("Elpis")) {
                 let m = match &r {
@@ -822,6 +898,8 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 }
             }
             c.home_spot = zen_agent::spot_service::home(&cfg,name);
+            char_state.insert(name.to_string(), (c.disconnected, c.hp));
+            c.manual_search = zen_agent::win::spots::manual_progress(name).filter(|m| !m.finished() || now().saturating_sub(m.updated) < 900);
             c.farm = Some(cfg.farm_rules(name));
             c.primary_retry_at = zen_agent::spot_service::active(name).filter(|a| a.spot.world != a.home.world && a.retry_at > 0).map(|a| a.retry_at);
             c.spot = effective_spot(&cfg,name).map(|s| (s[0], s[1]));

@@ -140,6 +140,12 @@ pub fn clear_active(name: &str) -> Result<(), String> {
     s.assigned.push(name.into());
     Ok(())
 }
+/// Cancela o trajeto/busca em andamento deste char (sem mexer no spot ativo).
+pub fn bump_epoch(name: &str) {
+    if let Some(Ok(mut s)) = STATE.get().map(|s| s.lock()) {
+        *s.epochs.entry(name.into()).or_default() += 1;
+    }
+}
 pub fn epoch(name: &str) -> u64 {
     STATE
         .get()

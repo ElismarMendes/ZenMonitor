@@ -265,6 +265,7 @@ impl Hub {
                     automation: c.last.automation,
                     minimized: c.last.minimized,
                     pos_from_memory: c.last.pos_from_memory,
+                    manual_search: c.last.manual_search.clone(),
                 });
             }
         }
@@ -356,6 +357,7 @@ mod tests {
             automation: None,
             minimized: None,
             pos_from_memory: None,
+            manual_search: None,
         }
     }
 

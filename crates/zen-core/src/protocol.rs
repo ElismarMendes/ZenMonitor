@@ -80,6 +80,9 @@ pub struct CharReport {
     /// Posição veio da memória do jogo (janela minimizada), mapa = último lido na tela.
     #[cfg_attr(feature = "serde", serde(default))]
     pub pos_from_memory: Option<bool>,
+    /// Busca manual de spot ("Procurar spot agora" com mapa escolhido): progresso.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub manual_search: Option<crate::spots::ManualSearch>,
     /// Tecla da skill de limpar mobs no caminho (0 = sem, usa o helper). `None` = agente antigo.
     #[cfg_attr(feature = "serde", serde(default))]
     pub skill_key: Option<u8>,
@@ -279,6 +282,16 @@ pub enum Command {
     SearchSpot {
         char_name: String,
     },
+    /// Busca manual (painel): percorre os spots do catálogo deste mapa até achar vaga.
+    /// Tem prioridade sobre as regras automáticas e não muda o mapa/spot original.
+    SearchSpotIn {
+        char_name: String,
+        world: u8,
+    },
+    /// Cancela a busca manual (pendente ou em andamento).
+    CancelSpotSearch {
+        char_name: String,
+    },
     /// Adia só a próxima tentativa de voltar ao mapa original (mais um intervalo).
     PostponeReturn {
         char_name: String,
@@ -370,6 +383,9 @@ pub struct PanelChar {
     /// Posição veio da memória do jogo (janela minimizada), mapa = último lido na tela.
     #[cfg_attr(feature = "serde", serde(default))]
     pub pos_from_memory: Option<bool>,
+    /// Busca manual de spot ("Procurar spot agora" com mapa escolhido): progresso.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub manual_search: Option<crate::spots::ManualSearch>,
     #[cfg_attr(feature = "serde", serde(default))]
     pub skill_key: Option<u8>,
     /// Vida do Dark Raven em % (barra no topo da tela). `None` = sem Raven ou não leu.

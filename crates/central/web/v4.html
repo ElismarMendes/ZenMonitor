@@ -450,6 +450,7 @@ function renderDrawer() {
       <button onclick="shot('${esc(M)}','${esc(N)}')">Ver tela</button>
       <button onclick="cmd('${esc(M)}',{cmd:'relock_ram',char_name:'${esc(N)}'},'reler memória')">Reler memória</button></div>
     ${farmHtml(c)}
+    ${manualHtml(c)}
     <h2>Automação deste personagem</h2>
     ${pcAuto(c) === false ? `<div class="kpi" style="border-color:#7a2a35;margin-bottom:8px"><div class="l" style="color:#ff8c9b">A automação do computador ${esc(M)} está DESLIGADA: nenhum char dele volta ao spot nem faz Fortuna, mesmo com a chave abaixo ligada.</div><button class="pri" style="margin-top:6px" onclick="cmd('${esc(M)}',{cmd:'set_config',automation_enabled:true},'automação do PC ligada')">Ligar a automação deste computador</button></div>` : ""}
     ${tog(c.automation, set("set_char_automation", !c.automation), "Automação (teclado/mouse)")}
@@ -530,6 +531,39 @@ function farmHtml(c) {
       <button onclick="cmd('${M}',{cmd:'return_to_original',char_name:'${N}'},'voltar ao mapa original')">Voltar ao mapa original agora</button>
       <button onclick="cmd('${M}',{cmd:'search_spot',char_name:'${N}'},'procurar vaga')">Procurar vaga agora</button>
       ${temp ? `<button onclick="cmd('${M}',{cmd:'postpone_return',char_name:'${N}'},'adiar volta')">Adiar a próxima tentativa</button>` : ""}</div>`;
+}
+// Busca manual (dono, 18/11 15:29): escolhe char e mapa e procura vaga já, com prioridade
+// sobre as regras automáticas. O mapa/spot original não muda.
+let msMap = {};
+function manualMaps(c) {
+  const home = c.home_spot ? c.home_spot.world : null, cur = WORLD_OF[mapOf(c)];
+  return ["Kanturu", ...FARM_MAPS.filter(m => m !== "Kanturu")].filter(m => WORLD_OF[m] && WORLD_OF[m] !== 1 && catalogFor(WORLD_OF[m]).length > 0)
+    .map(m => ({ m, n: catalogFor(WORLD_OF[m]).length, tag: [WORLD_OF[m] === home ? "original" : "", WORLD_OF[m] === cur ? "atual" : ""].filter(Boolean).join(", ") }));
+}
+function manualHtml(c) {
+  const k = c.machine + "|" + c.name, M = esc(c.machine), N = esc(c.name), K = esc(k);
+  const maps = manualMaps(c);
+  const sel = msMap[k] && maps.some(x => x.m === msMap[k]) ? msMap[k] : (maps.find(x => x.tag.includes("atual")) || maps.find(x => x.tag.includes("original")) || maps[0] || {}).m;
+  const ms = c.manual_search, running = ms && (ms.state === "pendente" || ms.state === "procurando");
+  const charOpts = (S.chars || []).filter(x => x.home_spot || x.spot).map(x => `<option value="${esc(x.machine + "|" + x.name)}" ${x.machine + "|" + x.name === k ? "selected" : ""}>${esc(x.name)} (${esc(x.machine)})</option>`).join("");
+  const mapOpts = maps.map(x => `<option value="${esc(x.m)}" ${x.m === sel ? "selected" : ""}>${esc(x.m)} — ${x.n} spot(s)${x.tag ? " · " + x.tag : ""}</option>`).join("");
+  let prog = "";
+  if (ms) {
+    const cor = ms.state === "achou" ? "#2fd27a" : ms.state === "procurando" || ms.state === "pendente" ? "#3b9eff" : "#f2b84b";
+    prog = `<div class="kv" style="margin-top:6px">
+      <span>Estado</span><span style="color:${cor}">${esc(ms.state)}${ms.state === "procurando" ? " — " + esc(`Procurando spots em ${ms.map} — ${ms.examined} de ${ms.total} verificados.`) : ""}</span>
+      <span>Mapa</span><span>${esc(ms.map)} · ${ms.total} spot(s) cadastrados</span>
+      <span>Verificando</span><span>${ms.current ? `(${ms.current[0]}, ${ms.current[1]})${ms.next_dist != null ? ` · ${ms.next_dist} passos` : ""}` : "—"}</span>
+      <span>Examinados</span><span>${ms.examined} · ocupados ${ms.occupied} · desconhecidos ${ms.unknown} · nossos ${ms.reserved} · inacessíveis ${ms.failed}</span>
+      ${ms.reason ? `<span>Motivo</span><span>${esc(ms.reason)}</span>` : ""}</div>`;
+  }
+  return `<h2>Procurar spot agora</h2>
+    <div class="sw"><span>Personagem</span><span><select onchange="openDrawer(this.value)">${charOpts}</select></span></div>
+    <div class="sw"><span>Mapa</span><span>${maps.length ? `<select onchange="msMap['${K}']=this.value">${mapOpts}</select>` : '<span class="note">nenhum mapa com spots no catálogo (F2)</span>'}</span></div>
+    <div class="btns"><button class="pri" ${running || !sel ? "disabled" : ""} onclick="cmd('${M}',{cmd:'search_spot_in',char_name:'${N}',world:WORLD_OF['${esc(sel || "")}']},'procurar spot em ${esc(sel || "")}')">Procurar spot agora</button>
+      <button class="dang" ${running ? "" : "disabled"} onclick="cmd('${M}',{cmd:'cancel_spot_search',char_name:'${N}'},'cancelar busca')">Cancelar busca</button></div>
+    <div class="note">Percorre os spots desse mapa, do mais perto ao mais longe, até achar vaga (para no primeiro livre). Passa na frente das esperas e do retorno automático; não troca de mapa sozinho e não muda o mapa original — a volta ao original a cada ${esc(String(farmOf(c).retorno_min))} min continua valendo.</div>
+    ${prog}`;
 }
 function tog2(on, c2, label) { return `<div class="sw"><span>${label}</span><button class="tg ${on ? "on" : ""}" onclick="${c2}"></button></div>`; }
 async function shot(m, n) {

@@ -272,6 +272,68 @@ pub(super) fn handle_command(
                 Err(e) => vec![err(&e)],
             }
         }
+        Command::SearchSpotIn { char_name, world } => {
+            let Some(dest) = zen_agent::win::nav::Dest::from_world(world).filter(|d| *d != zen_agent::win::nav::Dest::Lorencia) else {
+                return vec![err("esse mapa não tem navegação até spots")];
+            };
+            if zen_agent::spot_service::home(cfg, &char_name).is_none() {
+                return vec![err("este char não tem spot original (F1)")];
+            }
+            if access.list_windows().into_iter().all(|w| zen_core::title::parse(&w.title).name.as_deref() != Some(char_name.as_str())) {
+                return vec![err("char não encontrado neste PC")];
+            }
+            let n = match zen_agent::win::spots::manual_candidates(cfg, world) {
+                Ok(v) => v.len(),
+                Err(e) => return vec![err(&e)],
+            };
+            if n == 0 {
+                return vec![err(&format!("{}: nenhum spot cadastrado e habilitado (F2)", dest.name()))];
+            }
+            if rec.manual_running.as_deref() == Some(char_name.as_str()) || rec.manual_queue.iter().any(|q| q.0 == char_name) {
+                return vec![err(&format!("{char_name}: já há uma busca manual (cancele antes de pedir outra)"))];
+            }
+            // Prioridade: sai da espera de lotado e do "fica lá" do ir até; a próxima volta é a busca.
+            rec.full_until.remove(&char_name);
+            rec.hold.remove(&char_name);
+            rec.goto_queue.retain(|q| q.0 != char_name);
+            // Rotina de spot do próprio char rodando: cancela com segurança (ela para no próximo passo).
+            if rec.is_busy() && rec.status_of(&char_name).is_some_and(|s| s.contains("buscando spot") || s.contains("recuperando") || s.contains("retorno após morte") || s.contains("andando")) {
+                zen_agent::spot_service::bump_epoch(&char_name);
+            }
+            rec.manual_queue.push((char_name.clone(), world, now()));
+            zen_agent::win::spots::set_manual_progress(&char_name, zen_core::spots::ManualSearch {
+                map: dest.name().into(),
+                world,
+                total: n as u32,
+                state: "pendente".into(),
+                reason: if rec.is_busy() { "esperando o PC terminar a automação em andamento".into() } else { String::new() },
+                started: now(),
+                updated: now(),
+                ..Default::default()
+            });
+            rec.set_status(&char_name, format!("busca manual em {} pedida ({n} spots)", dest.name()));
+            vec![ok(&format!("{char_name}: busca manual em {} ({n} spots) {}", dest.name(), if rec.is_busy() { "na fila: começa quando o PC liberar" } else { "começando" }))]
+        }
+        Command::CancelSpotSearch { char_name } => {
+            let queued = rec.manual_queue.iter().any(|q| q.0 == char_name);
+            rec.manual_queue.retain(|q| q.0 != char_name);
+            let running = rec.manual_running.as_deref() == Some(char_name.as_str());
+            if running {
+                zen_agent::spot_service::bump_epoch(&char_name);
+            }
+            if !queued && !running {
+                return vec![err("nenhuma busca manual deste char")];
+            }
+            if queued && !running {
+                if let Some(mut m) = zen_agent::win::spots::manual_progress(&char_name) {
+                    m.state = "cancelada".into();
+                    m.reason = "cancelada antes de começar".into();
+                    m.updated = now();
+                    zen_agent::win::spots::set_manual_progress(&char_name, m);
+                }
+            }
+            vec![ok(&format!("{char_name}: busca manual cancelada{}", if running { " (para no próximo passo; a automação normal retoma)" } else { "" }))]
+        }
         Command::PostponeReturn { char_name } => {
             let Some(mut a) = zen_agent::spot_service::active(&char_name).filter(|a| a.spot.world != a.home.world && a.retry_at > 0) else {
                 return vec![err("não está em mapa alternativo: nada para adiar")];

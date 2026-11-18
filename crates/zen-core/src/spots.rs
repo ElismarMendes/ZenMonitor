@@ -615,3 +615,86 @@ mod tests {
             .is_empty());
     }
 }
+
+/// Progresso da busca manual de spot num mapa (painel).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ManualSearch {
+    pub map: String,
+    pub world: u8,
+    /// Spots habilitados do catálogo neste mapa.
+    pub total: u32,
+    pub examined: u32,
+    pub occupied: u32,
+    pub unknown: u32,
+    /// Reservados por outro char nosso (pulados).
+    pub reserved: u32,
+    /// Inacessíveis (caminho falhou duas vezes).
+    pub failed: u32,
+    pub current: Option<(i32, i32)>,
+    /// Passos (terreno) até o spot sendo verificado.
+    pub next_dist: Option<u32>,
+    /// "pendente", "procurando", "achou", "sem vaga", "cancelada", "erro".
+    pub state: String,
+    pub reason: String,
+    pub started: u64,
+    pub updated: u64,
+}
+
+impl ManualSearch {
+    pub fn finished(&self) -> bool {
+        !matches!(self.state.as_str(), "pendente" | "procurando")
+    }
+    pub fn summary(&self) -> String {
+        format!("Procurando spots em {} — {} de {} verificados", self.map, self.examined, self.total)
+    }
+}
+
+/// Ordem da busca manual: o mais perto do ponto de partida primeiro, depois sempre o mais perto
+/// do spot anterior (caminho mais curto pelo terreno). Sem distância conhecida = vai para o fim,
+/// na ordem do catálogo.
+pub fn manual_order(spots: &[Spot], first_dist: &dyn Fn(Spot) -> Option<u32>, between: &dyn Fn(Spot, Spot) -> Option<u32>) -> Vec<Spot> {
+    let mut left: Vec<Spot> = Vec::new();
+    for s in spots {
+        if !left.contains(s) {
+            left.push(*s);
+        }
+    }
+    let mut out = Vec::new();
+    let mut prev: Option<Spot> = None;
+    while !left.is_empty() {
+        let d = |s: Spot| match prev {
+            None => first_dist(s),
+            Some(p) => between(p, s),
+        };
+        let i = (0..left.len())
+            .min_by_key(|&i| (d(left[i]).is_none(), d(left[i]).unwrap_or(u32::MAX), i))
+            .unwrap();
+        let s = left.remove(i);
+        out.push(s);
+        prev = Some(s);
+    }
+    out
+}
+
+#[cfg(test)]
+mod manual_tests {
+    use super::*;
+    fn s(x: i32, y: i32) -> Spot { Spot { world: 7, x, y } }
+    #[test]
+    fn ordem_manual_vizinho_mais_perto_e_sem_caminho_no_fim() {
+        let spots = [s(100, 100), s(10, 10), s(12, 12), s(200, 200)];
+        let cheb = |a: Spot, b: Spot| Some(((a.x - b.x).abs().max((a.y - b.y).abs())) as u32);
+        let first = |x: Spot| cheb(s(0, 0), x);
+        let between = |a: Spot, b: Spot| if b == s(200, 200) { None } else { cheb(a, b) };
+        assert_eq!(manual_order(&spots, &first, &between), vec![s(10, 10), s(12, 12), s(100, 100), s(200, 200)]);
+    }
+    #[test]
+    fn progresso_terminado() {
+        let mut m = ManualSearch { map: "Arena".into(), total: 12, examined: 4, state: "procurando".into(), ..Default::default() };
+        assert!(!m.finished());
+        assert_eq!(m.summary(), "Procurando spots em Arena — 4 de 12 verificados");
+        m.state = "sem vaga".into();
+        assert!(m.finished());
+    }
+}

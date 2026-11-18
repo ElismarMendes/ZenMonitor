@@ -1326,6 +1326,7 @@ mod e2e {
                 automation: Some(true),
                 minimized: None,
                 pos_from_memory: None,
+                manual_search: None,
                 skill_key: Some(1),
                 pet_hp: None,
                 nearby: None,

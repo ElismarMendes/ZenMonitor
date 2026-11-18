@@ -22,6 +22,11 @@ pub(super) struct Recovery {
     /// "Ir até" que chegou com o PC ocupado por outra automação: (char, world, x, y, quando).
     /// Sai assim que o PC liberar (até 3 min). Antes falhava calado (golden das 13:00, 18/11).
     pub(super) goto_queue: Vec<(String, u8, i32, i32, u64)>,
+    /// Busca manual de spot pedida no painel: (char, world, pedido em). Roda assim que o PC
+    /// liberar; tem prioridade sobre as rotinas automáticas (dono, 18/11 15:29).
+    pub(super) manual_queue: Vec<(String, u8, u64)>,
+    /// Char com busca manual rodando agora.
+    pub(super) manual_running: Option<String>,
     pub(super) deposit_wait_reason: std::collections::HashMap<String, String>,
     /// Chars cuja causa da morte ainda está sendo lida.
     pub(super) pending: std::collections::HashSet<String>,
@@ -73,6 +78,8 @@ impl Recovery {
             deposit_block: Default::default(),
             full_until: Default::default(),
             goto_queue: Default::default(),
+            manual_queue: Default::default(),
+            manual_running: None,
             deposit_wait_reason: Default::default(),
             farm_since: Default::default(),
             death_farmed: Default::default(),
@@ -325,6 +332,31 @@ impl Recovery {
                 Ok(m) => Ok(format!("ir até ({}, {}): chegou — {m}. Fica lá até \"Voltar ao spot\"", target.0, target.1)),
                 Err(e) => Err(format!("ir até ({}, {}) falhou: {e}", target.0, target.1)),
             };
+            busy.store(false, std::sync::atomic::Ordering::SeqCst);
+            let _ = tx.send((name, r));
+        });
+        Ok(())
+    }
+
+    /// Busca manual de spot num mapa (painel). Uma automação por vez no PC, como as outras.
+    pub(super) fn start_manual_search(&mut self, name: &str, hwnd: isize, world: u8) -> Result<(), String> {
+        if self.is_busy() {
+            return Err("já há uma automação em andamento".into());
+        }
+        self.busy.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.manual_running = Some(name.to_string());
+        let (busy, status, tx, name) = (self.busy.clone(), self.status.clone(), self.done_tx.clone(), name.to_string());
+        tracing::warn!(char = %name, world, "AUTOMAÇÃO: busca manual de spot (painel)");
+        std::thread::spawn(move || {
+            let _guarda = GuardaDaRotina { busy: busy.clone(), tx: tx.clone(), name: name.clone() };
+            let st = status.clone();
+            let n2 = name.clone();
+            let cb = move |s: String| {
+                if let Ok(mut m) = st.lock() {
+                    m.insert(n2.clone(), s);
+                }
+            };
+            let r = input::explicit_move(|| zen_agent::win::spots::search_map(hwnd, &name, world, &cb));
             busy.store(false, std::sync::atomic::Ordering::SeqCst);
             let _ = tx.send((name, r));
         });

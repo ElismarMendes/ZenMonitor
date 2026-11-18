@@ -260,6 +260,7 @@ impl Monitor {
                 automation: None,
                 minimized: None,
                 pos_from_memory: None,
+                manual_search: None,
             });
         }
         out

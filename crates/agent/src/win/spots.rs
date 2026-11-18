@@ -404,3 +404,190 @@ fn recover_with(
         reasons.join("; ")
     ))
 }
+
+// ---------------------------------------------------------------- busca manual (painel)
+// Dono (18/11 15:29): "Procurar spot agora" com mapa escolhido. Usa as mesmas peças da busca
+// automática (catálogo F2 + diretório, reserva na central, guarda de chegada, leitura de
+// jogadores, caminhada pelo terreno); só a ORDEM e as regras de parada mudam:
+// - só spots do mapa escolhido, do mais perto ao mais longe (vizinho mais perto pelo terreno);
+// - não pula por fallback desligado/spot travado nem muda de mapa;
+// - spot inacessível = conta como falha e segue (não para a busca inteira);
+// - ao achar vaga assume o spot; o mapa/spot ORIGINAL não muda (só o F1 muda o original).
+
+static MANUAL: std::sync::Mutex<Option<std::collections::HashMap<String, zen_core::spots::ManualSearch>>> = std::sync::Mutex::new(None);
+
+pub fn manual_progress(name: &str) -> Option<zen_core::spots::ManualSearch> {
+    MANUAL.lock().ok()?.as_ref()?.get(name).cloned()
+}
+pub fn set_manual_progress(name: &str, m: zen_core::spots::ManualSearch) {
+    if let Ok(mut g) = MANUAL.lock() {
+        g.get_or_insert_with(Default::default).insert(name.to_string(), m);
+    }
+}
+pub fn clear_manual_progress(name: &str) {
+    if let Ok(mut g) = MANUAL.lock() {
+        if let Some(m) = g.as_mut() { m.remove(name); }
+    }
+}
+fn manual_update(name: &str, f: impl FnOnce(&mut zen_core::spots::ManualSearch)) {
+    if let Ok(mut g) = MANUAL.lock() {
+        let m = g.get_or_insert_with(Default::default).entry(name.to_string()).or_default();
+        f(m);
+        m.updated = now();
+    }
+}
+
+/// Spots habilitados do catálogo (local + diretório) num mapa.
+pub fn manual_candidates(cfg: &AgentConfig, world: u8) -> Result<Vec<Spot>, String> {
+    let directory = group::directory(true)?;
+    let mut catalog = local_catalog(cfg);
+    for entry in &directory.catalog {
+        if !catalog.iter().any(|c| c.spot == entry.spot) {
+            let mut e = entry.clone();
+            e.priority = e.priority.saturating_add(10_000);
+            catalog.push(e);
+        }
+    }
+    catalog.retain(|c| c.spot.world == world && c.spot.valid() && !directory.is_disabled(c.spot));
+    catalog.sort_by_key(|c| c.priority);
+    Ok(catalog.into_iter().map(|c| c.spot).collect())
+}
+
+pub fn search_map(hwnd: isize, name: &str, world: u8, status: &dyn Fn(String)) -> Result<String, String> {
+    let generation = group::epoch(name);
+    let cfg = AgentConfig::load_file().map_err(|e| e.to_string())?;
+    let home = group::home(&cfg, name).ok_or("personagem sem spot principal (F1)")?;
+    let dest = nav::Dest::from_world(world).filter(|d| *d != nav::Dest::Lorencia).ok_or("mapa sem navegação até spots")?;
+    let map = dest.name().to_string();
+    let spots = manual_candidates(&cfg, world)?;
+    if spots.is_empty() {
+        return Err(format!("busca manual em {map}: nenhum spot cadastrado e habilitado neste mapa"));
+    }
+    let terrain = nav::world_terrain_of(hwnd, world)?;
+    // Partida: a posição atual se já está nesse mapa; senão a safe/chegada do M.
+    let (cur_map, cur_pos) = nav::observe_named(hwnd);
+    let sources: Vec<(i32, i32)> = match (cur_map.and_then(zen_core::spots::world_for_name) == Some(world), cur_pos) {
+        (true, Some(p)) => vec![p],
+        _ => {
+            let mut v = terrain.safe_tiles();
+            v.extend(dest.gates().iter().map(|g| g.arrival));
+            v
+        }
+    };
+    let from_start = terrain.distances_from(&sources);
+    let at = |d: &[u16], s: Spot| d.get(s.y as usize * 256 + s.x as usize).filter(|v| **v != u16::MAX).map(|v| *v as u32);
+    let cache: RefCell<std::collections::BTreeMap<Spot, Vec<u16>>> = Default::default();
+    let between = |a: Spot, b: Spot| {
+        let mut c = cache.borrow_mut();
+        let d = c.entry(a).or_insert_with(|| terrain.distances_from(&[(a.x, a.y)]));
+        at(d, b)
+    };
+    let order = zen_core::spots::manual_order(&spots, &|s| at(&from_start, s), &between);
+    tracing::warn!(char = name, mapa = %map, ordem = ?order.iter().map(|s| s.id()).collect::<Vec<_>>(), "busca manual: ordem");
+    manual_update(name, |m| {
+        m.map = map.clone();
+        m.world = world;
+        m.total = order.len() as u32;
+        m.state = "procurando".into();
+        m.reason.clear();
+    });
+    let friendly: Vec<_> = cfg.spots.keys().cloned().chain(cfg.friendly_chars.iter().cloned()).collect();
+    let rules = cfg.farm_rules(name);
+    let cancelled = || group::epoch(name) != generation;
+    let mut prev: Option<Spot> = None;
+    let mut reasons = Vec::new();
+    for choice in order.iter().copied() {
+        if cancelled() {
+            return Err(format!("busca manual cancelada pelo dono ({map})"));
+        }
+        if input::manual_mode() {
+            return Err(format!("busca manual em {map} pausada: modo manual do dono"));
+        }
+        let dist = match prev { None => at(&from_start, choice), Some(p) => between(p, choice) };
+        prev = Some(choice);
+        manual_update(name, |m| { m.current = Some((choice.x, choice.y)); m.next_dist = dist; });
+        let progress = |m: &zen_core::spots::ManualSearch| format!("{} · ocupados {} · desconhecidos {}", m.summary(), m.occupied, m.unknown);
+        status(manual_progress(name).map(|m| format!("{} · indo a ({}, {})", progress(&m), choice.x, choice.y)).unwrap_or_default());
+        // Reservado por outro char nosso: pula sem andar.
+        if let Some(owner) = group::directory(true)?.owner(choice, name, now()) {
+            manual_update(name, |m| { m.examined += 1; m.reserved += 1; });
+            reasons.push(format!("{} é de {owner}", choice.id()));
+            continue;
+        }
+        if let Err(e) = group::request(name, choice, false) {
+            manual_update(name, |m| { m.examined += 1; m.reserved += 1; });
+            reasons.push(format!("{}: {e}", choice.id()));
+            continue;
+        }
+        let attempt = guarded(name, choice, friendly.clone(), generation, false, || {
+            let mut last = String::new();
+            for retry in 0..2 {
+                match nav::recover_to(hwnd, &terrain, (choice.x, choice.y), dest, status) {
+                    Ok(message) => return Ok(message),
+                    Err(e) => {
+                        tracing::warn!(char = name, spot = %choice.id(), retry, motivo = %e, "busca manual: chegada falhou");
+                        if occupied_error(&e) || e.contains("SPOT_UNVERIFIED") || e.contains("SPOT_CANCELLED") || input::manual_mode() {
+                            return Err(e);
+                        }
+                        last = e;
+                        if retry == 0 {
+                            nav::prepare_route_retry(hwnd, status)?;
+                        }
+                    }
+                }
+            }
+            Err(last)
+        });
+        match attempt {
+            Ok(message) => {
+                let retry_at = if world != home.world {
+                    now() + (rules.retorno_min * 60).clamp(60, 86400)
+                } else {
+                    0
+                };
+                // O original (home) fica como estava: só o spot ATIVO muda.
+                group::set_active_for(name, group::ActiveSpot { spot: choice, home, retry_at }, generation)
+                    .map_err(|e| format!("busca manual cancelada pelo dono ({map}): {e}"))?;
+                manual_update(name, |m| { m.examined += 1; m.state = "achou".into(); m.reason = format!("vaga em ({}, {})", choice.x, choice.y); });
+                return Ok(format!(
+                    "busca manual em {map}: vaga em ({}, {}) — {message}{}",
+                    choice.x,
+                    choice.y,
+                    if world != home.world { "; original mantido, volta a tentar o original no horário de sempre" } else { "" }
+                ));
+            }
+            Err(e) => {
+                if let Err(release_error) = group::request(name, choice, true) {
+                    tracing::warn!(char = name, spot = %choice.id(), erro = %release_error, "busca manual: liberação não confirmada");
+                }
+                if e.contains("SPOT_CANCELLED") || cancelled() {
+                    return Err(format!("busca manual cancelada pelo dono ({map})"));
+                }
+                if input::manual_mode() {
+                    return Err(format!("busca manual em {map} pausada: modo manual do dono"));
+                }
+                if occupied_error(&e) {
+                    manual_update(name, |m| { m.examined += 1; m.occupied += 1; });
+                } else if e.contains("SPOT_UNVERIFIED") {
+                    manual_update(name, |m| { m.examined += 1; m.unknown += 1; });
+                } else {
+                    // Inacessível: não insiste; anota e segue para o próximo.
+                    manual_update(name, |m| { m.examined += 1; m.failed += 1; });
+                }
+                reasons.push(format!("{}: {e}", choice.id()));
+            }
+        }
+    }
+    // Sem vaga: não fica parado no spot de outro jogador; espera na safe DESTE mapa.
+    if dest.can_teleport() {
+        status(format!("busca manual em {map}: sem vaga; indo esperar na safe"));
+        if let Err(e) = nav::teleport(hwnd, dest) {
+            tracing::warn!(char = name, erro = %e, "busca manual: teleporte para a safe falhou");
+        }
+    }
+    let m = manual_progress(name).unwrap_or_default();
+    let resumo = format!("{} de {} verificados: {} ocupados, {} desconhecidos, {} reservados, {} inacessíveis", m.examined, m.total, m.occupied, m.unknown, m.reserved, m.failed);
+    manual_update(name, |m| { m.state = "sem vaga".into(); m.reason = resumo.clone(); m.current = None; m.next_dist = None; });
+    tracing::warn!(char = name, mapa = %map, motivos = ?reasons, "busca manual: sem vaga");
+    Err(format!("nenhum spot livre confirmado (busca manual em {map}: {resumo})"))
+}
