@@ -1324,6 +1324,8 @@ mod e2e {
                 auto_deposit: Some(true),
                 spot_locked: Some(false),
                 automation: Some(true),
+                minimized: None,
+                pos_from_memory: None,
                 skill_key: Some(1),
                 pet_hp: None,
                 nearby: None,

@@ -149,6 +149,9 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
     // Vida do Dark Raven (barra no topo da tela) por char: (valor, quando leu). Lida a cada
     // 30 s: a vida do pet cai devagar e cada print custa CPU.
     let mut pet: std::collections::HashMap<String, (Option<u8>, u64)> = Default::default();
+    // Último mapa/posição lidos na tela por char: janela minimizada mostra a posição da
+    // memória com este mapa (só se a posição continua perto da última vista na tela).
+    let mut last_screen: std::collections::HashMap<String, (String, (i32, i32))> = Default::default();
 
     // Spots de chars gravados antes do catálogo existir entram no catálogo (uma vez).
     {
@@ -797,6 +800,25 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 c.map = mn.map(String::from);
                 if mn.is_some() {
                     c.pos = *p;
+                }
+                if let (Some(m), Some(q)) = (mn, p) {
+                    last_screen.insert(name.to_string(), (m.to_string(), *q));
+                }
+            }
+            // Janela minimizada: a tela não tem o que ler. Não é "fora do mapa": avisa o painel
+            // e, se a lista de personagens já foi achada, usa a posição da memória.
+            if let Some((h, _)) = seen.get(name) {
+                let min = zen_agent::win::input::is_minimized(*h);
+                c.minimized = Some(min);
+                if min && c.pos.is_none() {
+                    if let (Some(q), Some((m, last))) = (zen_agent::win::objects::hero_pos_hwnd(*h, name), last_screen.get(name)) {
+                        // Teleporte muda a posição de uma vez: longe da última vista, o mapa é incerto.
+                        if (q.0 - last.0).abs().max((q.1 - last.1).abs()) <= 20 {
+                            c.pos = Some(q);
+                            c.map = Some(m.clone());
+                            c.pos_from_memory = Some(true);
+                        }
+                    }
                 }
             }
             c.home_spot = zen_agent::spot_service::home(&cfg,name);

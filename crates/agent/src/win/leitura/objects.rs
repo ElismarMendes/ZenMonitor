@@ -99,3 +99,20 @@ pub fn nearby_hwnd(hwnd: isize, name: &str, pos: (i32, i32)) -> Option<Vec<Obj>>
     }
     nearby(pid, name, pos)
 }
+
+/// Posição do próprio char lida na entrada já achada da lista (sem varredura e sem tela).
+/// Serve para janela minimizada: só funciona depois que `nearby` achou a entrada uma vez.
+pub fn hero_pos_hwnd(hwnd: isize, name: &str) -> Option<(i32, i32)> {
+    let mut pid = 0u32;
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(windows::Win32::Foundation::HWND(hwnd as *mut _), Some(&mut pid));
+    }
+    let addr = HERO.lock().ok()?.as_ref()?.get(&pid).copied()?;
+    let p = Proc::open(pid)?;
+    let mut e = vec![0u8; STRIDE];
+    if !p.read(addr, &mut e) {
+        return None;
+    }
+    let o = parse_entry(&e)?;
+    (o.kind == Kind::Player && o.name == name && (0..=255).contains(&o.x) && (0..=255).contains(&o.y)).then_some((o.x, o.y))
+}

@@ -258,6 +258,8 @@ impl Monitor {
                 pet_hp: None,
                 nearby: None,
                 automation: None,
+                minimized: None,
+                pos_from_memory: None,
             });
         }
         out

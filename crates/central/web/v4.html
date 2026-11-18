@@ -211,6 +211,7 @@ function spotSituation(c) {
 }
 function situationHtml(c) {return spotSituation(c).map(n=>'<span class="note" style="display:block;max-width:480px;white-space:normal;margin-top:4px;color:var(--'+n.kind+')">'+esc(n.text)+'</span>').join('');}
 
+const minNote = c => c.minimized ? (c.pos_from_memory ? ' <span class="note" title="janela minimizada: posição lida na memória do jogo, mapa = o último visto na tela">· janela minimizada (memória)</span>' : ' <span class="note">· janela minimizada: sem leitura de tela</span>') : "";
 function dist(c) { return c.pos && c.spot ? Math.max(Math.abs(c.pos[0] - c.spot[0]), Math.abs(c.pos[1] - c.spot[1])) : null; }
 function status(c) {
   const a = c.alerts || [], st = c.auto_status || "";
@@ -225,6 +226,7 @@ function status(c) {
   if (a.includes("Limit2B")) return ["warn", "Zen no limite"];
   if (a.includes("Stopped")) return ["warn", "Parado"];
   const d = dist(c);
+  if (c.spot && !c.pos && c.minimized) return ["mute", "Janela minimizada"];
   if (c.spot && !c.pos) return ["warn", "Fora do mapa"];
   if (d != null && d > 6) return ["warn", "Fora do spot"];
   if (c.automation === false) return ["mute", "Só monitorado"];
@@ -433,7 +435,7 @@ function renderDrawer() {
   const drawerScroll = $("dbody").scrollTop;
   morph($("dbody"), `${situationHtml(c)}<div class="note">F1 salva e fixa o retorno, incluindo no catálogo. F2 apenas cadastra a posição atual no catálogo do mapa.</div><div class="kv">
     <span>Computador</span><span>${esc(M)}</span><span>Nível / resets</span><span>${c.level ?? "—"} / ${c.resets ?? "—"}</span>
-    <span>Mapa</span><span>${mapOf(c)} ${c.pos ? `(${c.pos.join(", ")})` : ""}</span><span>Spot</span><span>${c.spot ? c.spot.join(", ") : "não salvo"} ${c.spot_locked ? "🔒" : ""}</span>
+    <span>Mapa</span><span>${mapOf(c)} ${c.pos ? `(${c.pos.join(", ")})` : ""}${minNote(c)}</span><span>Spot</span><span>${c.spot ? c.spot.join(", ") : "não salvo"} ${c.spot_locked ? "🔒" : ""}</span>
     <span>Zen</span><span>${fmt(c.zen)}</span><span>Zen por hora</span><span>${fmt(Math.round(c.zen_per_hour || 0))}</span>
     <span>2B em</span><span>${fmtDur(c.eta_limit_s)}</span><span>Vida</span><span>${fmt(c.hp)}</span><span>Dark Raven</span><span>${c.pet_hp == null ? '<span class="note">sem leitura (barra não visível)</span>' : ravenTag(c)}</span>
     <span>Última morte</span><span>${hhmm(c.last_death_at)}</span><span>Situação</span><span>${esc(c.auto_status || "—")}</span></div>
@@ -515,7 +517,7 @@ function farmHtml(c) {
   const remaining = c.primary_retry_at == null ? null : Math.max(0, c.primary_retry_at - (S.now || Math.floor(Date.now() / 1000)));
   return `<h2>Navegação e Farm</h2><div class="kv">
     <span>Mapa original</span><span>${home ? `${esc(mapName(homeW))} (${home.x}, ${home.y})` : "sem F1"}</span>
-    <span>Mapa atual</span><span>${esc(mapOf(c))} ${c.pos ? `(${c.pos.join(", ")})` : ""}</span>
+    <span>Mapa atual</span><span>${esc(mapOf(c))} ${c.pos ? `(${c.pos.join(", ")})` : ""}${minNote(c)}</span>
     <span>Situação</span><span>${temp ? "farmando em mapa alternativo" : "no mapa original"}</span>
     <span>Próxima tentativa de voltar</span><span>${temp ? (remaining == null ? "—" : remaining === 0 ? "pendente" : fmtDur(remaining)) : "—"}</span></div>
     <div class="note" style="margin:6px 0">Ordem: spot original → outros spots do mapa original → mapas abaixo, na ordem → todos lotados: espera na safe e tenta em ~1 h. O mapa original só muda com "Salvar e fixar retorno" (F1).</div>

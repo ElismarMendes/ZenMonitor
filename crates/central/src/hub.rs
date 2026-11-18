@@ -263,6 +263,8 @@ impl Hub {
                     pet_hp: c.last.pet_hp,
                     nearby: c.last.nearby.clone(),
                     automation: c.last.automation,
+                    minimized: c.last.minimized,
+                    pos_from_memory: c.last.pos_from_memory,
                 });
             }
         }
@@ -352,6 +354,8 @@ mod tests {
             pet_hp: None,
             nearby: None,
             automation: None,
+            minimized: None,
+            pos_from_memory: None,
         }
     }
 

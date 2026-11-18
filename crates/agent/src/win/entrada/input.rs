@@ -1079,3 +1079,8 @@ mod explicit_move_tests {
         set_paused(false);
     }
 }
+
+/// Janela minimizada (sem quadro para ler na tela).
+pub fn is_minimized(hwnd: isize) -> bool {
+    unsafe { IsIconic(HWND(hwnd as *mut _)).as_bool() }
+}

@@ -74,6 +74,12 @@ pub struct CharReport {
     /// Automação ligada PARA ESTE CHAR (volta ao spot, baú, tecla V). `None` = agente antigo.
     #[cfg_attr(feature = "serde", serde(default))]
     pub automation: Option<bool>,
+    /// Janela do jogo minimizada: sem leitura de tela (mapa/posição). `None` = agente antigo.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub minimized: Option<bool>,
+    /// Posição veio da memória do jogo (janela minimizada), mapa = último lido na tela.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub pos_from_memory: Option<bool>,
     /// Tecla da skill de limpar mobs no caminho (0 = sem, usa o helper). `None` = agente antigo.
     #[cfg_attr(feature = "serde", serde(default))]
     pub skill_key: Option<u8>,
@@ -358,6 +364,12 @@ pub struct PanelChar {
     pub spot_locked: Option<bool>,
     #[cfg_attr(feature = "serde", serde(default))]
     pub automation: Option<bool>,
+    /// Janela do jogo minimizada: sem leitura de tela (mapa/posição). `None` = agente antigo.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub minimized: Option<bool>,
+    /// Posição veio da memória do jogo (janela minimizada), mapa = último lido na tela.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub pos_from_memory: Option<bool>,
     #[cfg_attr(feature = "serde", serde(default))]
     pub skill_key: Option<u8>,
     /// Vida do Dark Raven em % (barra no topo da tela). `None` = sem Raven ou não leu.
