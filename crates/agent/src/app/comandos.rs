@@ -253,6 +253,7 @@ pub(super) fn handle_command(
                 Err(e) => vec![err(&e)],
             }
         }
+        Command::SetSpotEnabled { .. } => vec![err("ligar/desligar spot é feito pela central")],
         Command::SearchSpot { char_name } => {
             let Some(spot) = zen_agent::spot_service::effective(cfg, &char_name) else {
                 return vec![err("este char não tem spot (F1)")];
