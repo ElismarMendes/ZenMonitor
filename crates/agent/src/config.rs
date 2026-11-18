@@ -161,7 +161,7 @@ impl Default for AgentConfig {
             chat_enabled: false,
             server_notices: true,
             mapas_alternativos_padrao: vec!["Arena".into()],
-            retorno_original_min: 60,
+            retorno_original_min: 20,
             gravar_invasoes: true,
             gravacao_intervalo_s: 2,
             gravacao_manter_h: 48,
@@ -216,7 +216,12 @@ impl AgentConfig {
     /// antigo `mapas_extras` do char ou o padrão (Arena), com o intervalo padrão.
     pub fn farm_rules(&self, name: &str) -> zen_core::spots::FarmRules {
         if let Some(r) = self.farm.get(name) {
-            return r.clone();
+            let mut r = r.clone();
+            // Dono (18/11 20:09): procura de spot a cada 20 min. 60 era o padrão antigo gravado.
+            if r.retorno_min == 60 {
+                r.retorno_min = 20;
+            }
+            return r;
         }
         zen_core::spots::FarmRules {
             mapas: self.mapas_extras.get(name).cloned().unwrap_or_else(|| self.mapas_alternativos_padrao.clone()),

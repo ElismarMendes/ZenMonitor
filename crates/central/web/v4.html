@@ -527,7 +527,7 @@ function farmHtml(c) {
     <span>Mapa atual</span><span>${esc(mapOf(c))} ${c.pos ? `(${c.pos.join(", ")})` : ""}${minNote(c)}</span>
     <span>Situação</span><span>${temp ? "farmando em mapa alternativo" : "no mapa original"}</span>
     <span>Próxima tentativa de voltar</span><span>${temp ? (remaining == null ? "—" : remaining === 0 ? "pendente" : fmtDur(remaining)) : "—"}</span></div>
-    <div class="note" style="margin:6px 0">Ordem: spot original → outros spots do mapa original → mapas abaixo, na ordem → todos lotados: espera na safe e tenta em ~1 h. O mapa original só muda com "Salvar e fixar retorno" (F1).</div>
+    <div class="note" style="margin:6px 0">Ordem: spot original → outros spots do mapa original → mapas abaixo, na ordem → todos lotados: espera na safe e tenta em ~20 min. O mapa original só muda com "Salvar e fixar retorno" (F1).</div>
     ${tog2(f.alternativos, `farmSet('${K}','alternativos',${!f.alternativos})`, "Procurar em mapas alternativos")}
     ${rows}
     <div class="btns"><select onchange="farmAdd('${K}',this.value)"><option value="">+ adicionar mapa…</option>${opts}</select></div>

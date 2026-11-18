@@ -3,6 +3,9 @@ use crate::objects::{Kind, Obj};
 
 /// Margem m?xima para confirmar chegada ao spot de farm.
 pub const ARRIVAL_RADIUS: i32 = 2;
+/// Distância mínima entre spots de chars NOSSOS (helper com alcance 6). Antes era 2: em 18/11
+/// o 0MAGIC assumiu Arena (48,57) a 5 tiles do xWizard em (53,57) e um dava KS no outro.
+pub const OWN_SPACING: i32 = 8;
 /// Jogador de fora a até tantos tiles = spot ocupado. Era 6; o helper tem range 6, então dois chars
 /// a até 12 tiles disputam os mesmos mobs (KS do x9901 no 4RTURZ1N, 18/11 08:25).
 pub const OCCUPIED_RADIUS: i32 = 12;
@@ -149,13 +152,13 @@ impl Directory {
             .iter()
             .find(|m| {
                 !m.name.eq_ignore_ascii_case(except)
-                    && [m.home, m.active].into_iter().flatten().any(|s| s.near(spot, 2))
+                    && [m.home, m.active].into_iter().flatten().any(|s| s.near(spot, OWN_SPACING))
             })
             .map(|m| m.name.as_str())
             .or_else(|| {
                 self.leases
                     .iter()
-                    .find(|l| l.until > now && !l.name.eq_ignore_ascii_case(except) && l.spot.near(spot, 2))
+                    .find(|l| l.until > now && !l.name.eq_ignore_ascii_case(except) && l.spot.near(spot, OWN_SPACING))
                     .map(|l| l.name.as_str())
             })
     }
@@ -323,7 +326,7 @@ pub struct FarmRules {
 
 impl Default for FarmRules {
     fn default() -> Self {
-        Self { mapas: vec!["Arena".into()], retorno_min: 60, alternativos: true, sondagem: true }
+        Self { mapas: vec!["Arena".into()], retorno_min: 20, alternativos: true, sondagem: true }
     }
 }
 
@@ -696,5 +699,17 @@ mod manual_tests {
         assert_eq!(m.summary(), "Procurando spots em Arena — 4 de 12 verificados");
         m.state = "sem vaga".into();
         assert!(m.finished());
+    }
+}
+
+#[cfg(test)]
+mod espacamento_tests {
+    use super::*;
+    #[test]
+    fn dois_chars_nossos_nao_ficam_a_5_tiles_na_arena() {
+        let mut d = Directory::default();
+        d.register(Member { machine: "RAG".into(), name: "xWizard".into(), home: Some(Spot { world: 38, x: 84, y: 236 }), active: Some(Spot { world: 7, x: 53, y: 57 }) });
+        assert_eq!(d.owner(Spot { world: 7, x: 48, y: 57 }, "0MAGIC", 0), Some("xWizard"));
+        assert_eq!(d.owner(Spot { world: 7, x: 47, y: 70 }, "0MAGIC", 0), None, "13 tiles: pode");
     }
 }

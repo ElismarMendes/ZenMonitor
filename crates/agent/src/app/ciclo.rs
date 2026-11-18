@@ -535,8 +535,8 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 rec.full_until.remove(&name);
             } else if matches!(&r, Err(e) if e.starts_with("nenhum spot livre confirmado")) {
                 // Tudo lotado: o char já foi para a safe (spots.rs). Nova volta pelo catálogo só
-                // daqui a ~1 h, com horário sorteado para não parecer robô.
-                let at = now() + random_between(3000, 4200);
+                // daqui a ~20 min, com horário sorteado para não parecer robô.
+                let at = now() + random_between(1080, 1320); // ~20 min sorteado (dono, 18/11 20:09)
                 rec.full_until.insert(name.clone(), at);
                 let m = format!("{name}: todos os spots lotados; esperando na safe, nova busca às {}", chrono_hhmm(at));
                 tracing::warn!(char = %name, nova_busca = %chrono_hhmm(at), "spots lotados: espera na safe");
