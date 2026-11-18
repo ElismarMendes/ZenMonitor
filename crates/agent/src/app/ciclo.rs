@@ -846,11 +846,13 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             let foreign:Vec<String>=foreign.into_iter().map(str::to_owned).collect();
             // Vigia da chegada (dono, 18/11 08:46): nos primeiros 3 min no spot, jogador de fora
             // por perto = o spot já era dele. Larga o spot e procura outro livre. Depois de 3 min
-            // o spot é nosso e KS só vira aviso. Não vale para a volta depois de morte (sempre
-            // volta) nem para char travado no spot.
+            // o spot é nosso e KS só vira aviso. Vale também para a volta depois de morte (dono,
+            // 18/11 12:20: xWizard morreu, voltou ao spot e ficou dando KS no Mounjaro). A volta
+            // continua sempre acontecendo; se o spot está ocupado, ele procura outro. Char travado
+            // no spot pelo painel não sai.
             let recem=rec.farm_since.get(name).is_some_and(|t|now().saturating_sub(*t)<180);
             if recem && !foreign.is_empty() && cfg.automation_enabled && !rec.is_busy() && !input::manual_mode()
-                && !rec.return_owned.contains(name) && !cfg.locked_spots.iter().any(|n|n==name)
+                && !cfg.locked_spots.iter().any(|n|n==name)
                 && !cfg.no_automation.iter().any(|n|n==name) {
                 if let Some((hwnd,_))=seen.get(name).copied() {
                     let why=format!("spot já ocupado por {} ao chegar", foreign.join(", "));
