@@ -24,6 +24,9 @@ pub enum ZenSource {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CharReport {
+    /// Regras de farm em vigor (mapas alternativos, intervalo de retorno). v5 18/11.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub farm: Option<crate::spots::FarmRules>,
     #[cfg_attr(feature = "serde", serde(default))]
     pub primary_retry_at: Option<u64>,
     #[cfg_attr(feature = "serde", serde(default))]
@@ -257,6 +260,15 @@ pub enum Command {
     },
     PauseRam,
     ResumeRam,
+    /// Regras de farm do char (painel "Navegação e Farm").
+    SetFarm {
+        char_name: String,
+        rules: crate::spots::FarmRules,
+    },
+    /// Larga o mapa alternativo e volta agora ao mapa/spot original.
+    ReturnToOriginal {
+        char_name: String,
+    },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -291,6 +303,8 @@ pub enum CentralMsg {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct PanelChar {
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub farm: Option<crate::spots::FarmRules>,
     #[cfg_attr(feature = "serde", serde(default))]
     pub home_spot: Option<crate::spots::Spot>,
     #[cfg_attr(feature = "serde", serde(default))]

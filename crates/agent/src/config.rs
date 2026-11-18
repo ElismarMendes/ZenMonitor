@@ -51,6 +51,10 @@ pub struct AgentConfig {
     /// Avisos amarelos do servidor (fila fixa na memória, leitura de 4,5 KB por ciclo).
     /// Vão para a central, que grava e avisa no celular as invasões. Ligado por padrão.
     pub server_notices: bool,
+    /// Mapas alternativos padrão (em ordem) para quem não tem regra própria em [farm].
+    pub mapas_alternativos_padrao: Vec<String>,
+    /// Minutos num mapa alternativo antes de tentar o original (padrão de todos os chars).
+    pub retorno_original_min: u64,
     /// Grava a janela do char (1 quadro a cada `gravacao_intervalo_s`, metade do tamanho) enquanto
     /// ele está fora do spot num "ir até" (invasão). Pasta gravacoes\, guardada `gravacao_manter_h`.
     pub gravar_invasoes: bool,
@@ -129,6 +133,8 @@ pub struct AgentConfig {
     pub spots: std::collections::BTreeMap<String, [i32; 2]>,
     /// Parâmetros da navegação (vigia de progresso, desvio de mobs). Tabela `[navegacao]`.
     pub navegacao: zen_core::navegacao::NavTuning,
+    /// Regras de farm por char (painel "Navegação e Farm"). Tabela [farm.<char>].
+    pub farm: std::collections::BTreeMap<String, zen_core::spots::FarmRules>,
 }
 
 impl Default for AgentConfig {
@@ -154,11 +160,14 @@ impl Default for AgentConfig {
             ram_paused: false,
             chat_enabled: false,
             server_notices: true,
+            mapas_alternativos_padrao: vec!["Arena".into()],
+            retorno_original_min: 60,
             gravar_invasoes: true,
             gravacao_intervalo_s: 2,
             gravacao_manter_h: 48,
             ice_queen_char: String::new(),
             navegacao: Default::default(),
+            farm: Default::default(),
             automation_enabled: false,
             automation_idle_s: 60,
             manual_hold_s: 5,
@@ -201,6 +210,20 @@ impl AgentConfig {
             .ok()
             .and_then(|p| p.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    /// Regras de farm em vigor para o char: a do painel ([farm.<char>]); sem ela, os mapas do
+    /// antigo `mapas_extras` do char ou o padrão (Arena), com o intervalo padrão.
+    pub fn farm_rules(&self, name: &str) -> zen_core::spots::FarmRules {
+        if let Some(r) = self.farm.get(name) {
+            return r.clone();
+        }
+        zen_core::spots::FarmRules {
+            mapas: self.mapas_extras.get(name).cloned().unwrap_or_else(|| self.mapas_alternativos_padrao.clone()),
+            retorno_min: self.retorno_original_min.max(1),
+            alternativos: self.spot_fallback,
+            sondagem: true,
+        }
     }
 
     pub fn path() -> PathBuf {

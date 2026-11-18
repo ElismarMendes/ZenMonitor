@@ -1241,6 +1241,7 @@ mod e2e {
             seq: 1,
             sent_at: now(),
             chars: vec![CharReport {
+                farm: None,
                 primary_retry_at: None,
                 home_spot: None,
                 pid: 1,

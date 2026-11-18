@@ -218,6 +218,35 @@ pub(super) fn handle_command(
                 Err(e) => vec![err(&format!("falha ao salvar: {e}"))],
             }
         }
+        Command::SetFarm { char_name, rules } => {
+            let mut rules = rules;
+            rules.retorno_min = rules.retorno_min.clamp(5, 24 * 60);
+            rules.mapas.retain(|m| zen_core::spots::world_for_name(m).is_some_and(|w| w != 1));
+            rules.mapas.dedup();
+            cfg.farm.insert(char_name.clone(), rules.clone());
+            let all = cfg.farm.clone();
+            match save_field(move |c| c.farm = all) {
+                Ok(()) => vec![ok(&format!("{char_name}: navegação e farm salvos (mapas alternativos: {}; retorno ao original a cada {} min)", if rules.alternativos && !rules.mapas.is_empty() { rules.mapas.join(" → ") } else { "nenhum".into() }, rules.retorno_min))],
+                Err(e) => vec![err(&format!("falha ao salvar: {e}"))],
+            }
+        }
+        Command::ReturnToOriginal { char_name } => {
+            let Some(home) = zen_agent::spot_service::home(cfg, &char_name) else {
+                return vec![err("este char não tem spot original (F1)")];
+            };
+            let Some(w) = access.list_windows().into_iter().find(|w| zen_core::title::parse(&w.title).name.as_deref() == Some(char_name.as_str())) else {
+                return vec![err("char não encontrado neste PC")];
+            };
+            let Some(dest) = zen_agent::win::nav::Dest::from_world(home.world) else {
+                return vec![err("mapa original sem teleporte calibrado")];
+            };
+            let _ = zen_agent::spot_service::clear_active(&char_name);
+            rec.hold.remove(&char_name);
+            match rec.start(&char_name, w.pid, w.hwnd, (home.x, home.y), dest, "voltar ao mapa original (painel)") {
+                Ok(()) => vec![ok(&format!("{char_name}: voltando ao mapa original {} ({}, {})", dest.name(), home.x, home.y))],
+                Err(e) => vec![err(&e)],
+            }
+        }
         Command::SetSpotLock { char_name, locked } => {
             if locked && !cfg.spots.contains_key(&char_name) {
                 return vec![err("este char não tem spot para travar")];

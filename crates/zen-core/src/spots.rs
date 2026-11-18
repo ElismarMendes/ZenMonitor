@@ -244,6 +244,102 @@ pub fn candidates_ranked(first: Spot, catalog: &[CatalogSpot], worlds: &[u8], di
     result
 }
 
+/// Regras de farm de um char (dono, 18/11 13:27). Mapa ORIGINAL = mapa do F1 (só muda por ação
+/// explícita). Mapas alternativos em ordem de prioridade (padrão: Arena primeiro).
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FarmRules {
+    pub mapas: Vec<String>,
+    /// Minutos num mapa alternativo antes de tentar o original de novo.
+    pub retorno_min: u64,
+    /// Procura spot em mapa alternativo quando o original está lotado.
+    pub alternativos: bool,
+    /// Na hora da reavaliação, ir até o mapa original conferir pessoalmente. Desligado = só
+    /// reavalia quando houver vaga confirmada por outra fonte (hoje não há: fica onde está).
+    pub sondagem: bool,
+}
+
+impl Default for FarmRules {
+    fn default() -> Self {
+        Self { mapas: vec!["Arena".into()], retorno_min: 60, alternativos: true, sondagem: true }
+    }
+}
+
+/// Ordem final da busca: spot pedido -> spots do mesmo mapa (mais perto primeiro) -> o spot
+/// alternativo onde já estava (não larga um spot produtivo à toa) -> mapas alternativos na
+/// ordem dada. Mapas desconhecidos e o próprio mapa original saem da lista dos alternativos.
+pub fn search_order(
+    first: Spot,
+    home: Spot,
+    current_alt: Option<Spot>,
+    catalog: &[CatalogSpot],
+    rules: &FarmRules,
+    dist: &dyn Fn(Spot) -> Option<u32>,
+) -> Vec<Spot> {
+    let alt_worlds: Vec<u8> = if rules.alternativos {
+        rules.mapas.iter().filter_map(|m| world_for_name(m)).filter(|w| *w != home.world && *w != 1).collect()
+    } else {
+        Vec::new()
+    };
+    let mut out = candidates_ranked(first, catalog, &[home.world], dist);
+    if first.world != home.world {
+        for s in candidates_ranked(home, catalog, &[], dist) {
+            if !out.iter().any(|r| r.near(s, 2)) {
+                out.push(s);
+            }
+        }
+    }
+    if let Some(a) = current_alt.filter(|a| a.world != home.world) {
+        if !out.iter().any(|r| r.near(a, 2)) {
+            out.push(a);
+        }
+    }
+    for w in alt_worlds {
+        let mut map: Vec<_> = catalog.iter().filter(|c| c.spot.world == w && c.spot.valid()).collect();
+        map.sort_by_key(|c| (dist(c.spot).unwrap_or(u32::MAX), c.priority, c.spot.x, c.spot.y));
+        for c in map {
+            if !out.iter().any(|r| r.near(c.spot, 2)) {
+                out.push(c.spot);
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod farm_tests {
+    use super::*;
+    fn c(w: u8, x: i32, p: u32) -> CatalogSpot { CatalogSpot { spot: Spot { world: w, x, y: 50 }, priority: p } }
+    #[test]
+    fn ordem_original_depois_arena_depois_outros() {
+        let home = Spot { world: 38, x: 10, y: 50 };
+        let cat = vec![c(38, 10, 0), c(38, 100, 1), c(2, 30, 0), c(7, 40, 0), c(7, 60, 1)];
+        let rules = FarmRules { mapas: vec!["Arena".into(), "Dungeon".into()], ..Default::default() };
+        let d = |s: Spot| Some(s.x as u32);
+        let o = search_order(home, home, None, &cat, &rules, &d);
+        let worlds: Vec<u8> = o.iter().map(|s| s.world).collect();
+        assert_eq!(worlds, vec![38, 38, 7, 7, 2]);
+    }
+    #[test]
+    fn reavaliacao_volta_ao_alternativo_antes_de_outros_mapas() {
+        let home = Spot { world: 38, x: 10, y: 50 };
+        let alt = Spot { world: 7, x: 60, y: 50 };
+        let cat = vec![c(38, 10, 0), c(7, 40, 0), c(7, 60, 1)];
+        let o = search_order(home, home, Some(alt), &cat, &FarmRules::default(), &|s: Spot| Some(s.x as u32));
+        assert_eq!(o[1], alt, "original lotado: volta ao spot alternativo onde estava");
+    }
+    #[test]
+    fn sem_alternativos_fica_no_mapa_original() {
+        let home = Spot { world: 38, x: 10, y: 50 };
+        let cat = vec![c(38, 10, 0), c(7, 40, 0)];
+        let rules = FarmRules { alternativos: false, ..Default::default() };
+        let o = search_order(home, home, None, &cat, &rules, &|_| Some(1));
+        assert!(o.iter().all(|s| s.world == 38));
+        let lor = FarmRules { mapas: vec!["Lorencia".into(), "Inexistente".into()], ..Default::default() };
+        assert!(search_order(home, home, None, &cat, &lor, &|_| Some(1)).iter().all(|s| s.world == 38));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

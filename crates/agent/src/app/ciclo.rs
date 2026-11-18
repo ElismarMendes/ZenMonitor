@@ -230,7 +230,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             }
             let reply = {
                 // Só operações que editam spots precisam serializar com o salvamento.
-                let edits_spots = matches!(&c, Command::GoTo { .. } | Command::AssignSpot { .. } | Command::DeleteSpot { .. } | Command::SetSpotLock { .. } | Command::SaveSpot { .. });
+                let edits_spots = matches!(&c, Command::GoTo { .. } | Command::AssignSpot { .. } | Command::DeleteSpot { .. } | Command::SetSpotLock { .. } | Command::SaveSpot { .. } | Command::SetFarm { .. } | Command::ReturnToOriginal { .. });
                 let edit = SPOT_EDIT.lock().unwrap_or_else(|e| e.into_inner());
                 sync_saved_spots(&mut cfg, &spot_changed_rx);
                 let _edit = if edits_spots { Some(edit) } else { drop(edit); None };
@@ -659,7 +659,15 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 if !active.due(home,now()) {continue}
                 let Some((hwnd,_))=seen.get(name) else {continue};
                 let Some(dest)=zen_agent::win::nav::Dest::from_world(home.world) else {continue};
-                active.retry_at=now()+cfg.spot_primary_retry_s.clamp(60,86400);
+                let rules=cfg.farm_rules(name);
+                active.retry_at=now()+(rules.retorno_min*60).clamp(60,86400);
+                if !rules.sondagem {
+                    // Sem sondagem: só voltaria com vaga confirmada por outra fonte (ainda não
+                    // existe). Fica farmando no alternativo e reagenda.
+                    let _=zen_agent::spot_service::set_active(name,active);
+                    rec.set_status(name,"reavaliação do mapa original adiada: sondagem desligada e nenhuma vaga confirmada".into());
+                    continue;
+                }
                 if zen_agent::spot_service::set_active(name,active).is_err(){continue}
                 if let Err(e)=rec.start(name,c.pid,*hwnd,(home.x,home.y),dest,"reavaliando catálogo do mapa principal") {
                     rec.set_status(name,e);
@@ -769,6 +777,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                 }
             }
             c.home_spot = zen_agent::spot_service::home(&cfg,name);
+            c.farm = Some(cfg.farm_rules(name));
             c.primary_retry_at = zen_agent::spot_service::active(name).filter(|a| a.spot.world != a.home.world && a.retry_at > 0).map(|a| a.retry_at);
             c.spot = effective_spot(&cfg,name).map(|s| (s[0], s[1]));
             c.return_on_death = Some(!cfg.no_return_on_death.iter().any(|n| n == name));

@@ -219,6 +219,7 @@ pub fn resume(
     )
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn arrival_choices(first: Spot, home: Spot, catalog: &[CatalogSpot], secondary: &[u8], fallback: bool, keep_owned: bool, locked: bool) -> Vec<Spot> {
     arrival_choices_ranked(first, home, catalog, secondary, fallback, keep_owned, locked, &|_| None)
 }
@@ -226,6 +227,7 @@ fn arrival_choices(first: Spot, home: Spot, catalog: &[CatalogSpot], secondary: 
 /// Ordem de busca: o destino pedido, depois os spots do mapa do F1 do mais perto ao mais longe
 /// da entrada (safe zone ou chegada do M), depois os mapas liberados para o char.
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 fn arrival_choices_ranked(first: Spot, home: Spot, catalog: &[CatalogSpot], secondary: &[u8], fallback: bool, keep_owned: bool, locked: bool, dist: &dyn Fn(Spot) -> Option<u32>) -> Vec<Spot> {
     let mut choices = zen_core::spots::candidates_ranked(first, catalog, secondary, dist);
     // O principal sempre é considerado antes dos mapas secundários.
@@ -269,18 +271,18 @@ fn recover_with(
             catalog.push(e);
         }
     }
-    // v5: mapas extras POR CHAR (padrão: nenhum, só o mapa do F1). Lorencia nunca.
-    let secondary: Vec<_> = cfg
-        .mapas_extras
-        .get(name)
-        .into_iter()
-        .flatten()
-        .filter_map(|m| zen_core::spots::world_for_name(m))
-        .filter(|w| *w != 1)
-        .collect();
-    let distances = entry_distances(hwnd, std::iter::once(first.world).chain(std::iter::once(home.world)).chain(secondary.iter().copied()));
+    // v5 (18/11 13:27): regras de farm do char. Ordem: spot pedido -> mesmo mapa (mais perto)
+    // -> spot alternativo onde já estava -> mapas alternativos (padrão: Arena) na ordem do painel.
+    let rules = cfg.farm_rules(name);
+    let alt_worlds: Vec<u8> = rules.mapas.iter().filter_map(|m| zen_core::spots::world_for_name(m)).filter(|w| *w != 1).collect();
+    let distances = entry_distances(hwnd, std::iter::once(first.world).chain(std::iter::once(home.world)).chain(alt_worlds.iter().copied()));
     let dist = |s: Spot| distances.get(&s.world).and_then(|d| d.get(s.y as usize * 256 + s.x as usize)).filter(|v| **v != u16::MAX).map(|v| *v as u32);
-    let choices = arrival_choices_ranked(first, home, &catalog, &secondary, cfg.spot_fallback, keep_owned, cfg.locked_spots.iter().any(|n| n == name), &dist);
+    let current_alt = group::active(name).filter(|a| a.home == home && a.spot.world != home.world).map(|a| a.spot);
+    let mut choices = zen_core::spots::search_order(first, home, current_alt, &catalog, &rules, &dist);
+    // Desativar fallback limita os destinos; nunca contorna reserva ou ocupação.
+    if !cfg.spot_fallback || keep_owned || cfg.locked_spots.iter().any(|n| n == name) {
+        choices.truncate(1);
+    }
     tracing::info!(char = name, ordem = ?choices.iter().map(|s| format!("{} ({} passos)", s.id(), dist(*s).map_or("?".into(), |d| d.to_string()))).collect::<Vec<_>>(), "spots: ordem de busca");
     let friendly: Vec<_> = cfg
         .spots
@@ -340,7 +342,7 @@ fn recover_with(
                     group::active(name)
                         .filter(|a| a.home == home && a.retry_at > 0)
                         .map(|a| a.retry_at)
-                        .unwrap_or_else(|| now() + cfg.spot_primary_retry_s.clamp(60, 86400))
+                        .unwrap_or_else(|| now() + (rules.retorno_min * 60).clamp(60, 86400))
                 } else {
                     0
                 };
@@ -367,6 +369,12 @@ fn recover_with(
                 }
                 if occupied_error(&e) {
                     reasons.push(e);
+                    continue;
+                }
+                // Leitura de jogadores falhou: esse spot fica "desconhecido" (nunca "livre") e a
+                // busca segue para o próximo, em vez de parar tudo (dono, 18/11 13:27).
+                if e.contains("SPOT_UNVERIFIED") {
+                    reasons.push(format!("{}: ocupação desconhecida (leitura falhou)", choice.id()));
                     continue;
                 }
                 return Err(e);

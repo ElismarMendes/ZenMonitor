@@ -235,6 +235,7 @@ impl Hub {
                     last_death_at: c.last_death_at.filter(|&d| !(c.last.hp.is_some_and(|h| h > 0) && c.last_seen_at >= d + 8)),
                 };
                 out.push(PanelChar {
+                    farm: c.last.farm.clone(),
                     home_spot: c.last.home_spot,
                     primary_retry_at: c.last.primary_retry_at,
                     machine: mname.clone(),
@@ -323,6 +324,7 @@ mod tests {
 
     fn rep(name: &str, zen: u64, disconnected: bool) -> CharReport {
         CharReport {
+                farm: None,
                 primary_retry_at: None,
                 home_spot: None,
             pid: 1,

@@ -437,6 +437,7 @@ function renderDrawer() {
       <button onclick="cmd('${esc(M)}',{cmd:'save_spot',char_name:'${esc(N)}'},'salvar spot')" title="Equivale ao F1: fixa o retorno e inclui no catálogo">Salvar e fixar retorno</button>
       <button onclick="shot('${esc(M)}','${esc(N)}')">Ver tela</button>
       <button onclick="cmd('${esc(M)}',{cmd:'relock_ram',char_name:'${esc(N)}'},'reler memória')">Reler memória</button></div>
+    ${farmHtml(c)}
     <h2>Automação deste personagem</h2>
     ${pcAuto(c) === false ? `<div class="kpi" style="border-color:#7a2a35;margin-bottom:8px"><div class="l" style="color:#ff8c9b">A automação do computador ${esc(M)} está DESLIGADA: nenhum char dele volta ao spot nem faz Fortuna, mesmo com a chave abaixo ligada.</div><button class="pri" style="margin-top:6px" onclick="cmd('${esc(M)}',{cmd:'set_config',automation_enabled:true},'automação do PC ligada')">Ligar a automação deste computador</button></div>` : ""}
     ${tog(c.automation, set("set_char_automation", !c.automation), "Automação (teclado/mouse)")}
@@ -451,6 +452,46 @@ function renderDrawer() {
     <img class="shot" id="shot" ${shotUrl[drawerChar] ? `src="${shotUrl[drawerChar]}"` : 'style="display:none"'}>`);
   $("dbody").scrollTop = drawerScroll;
 }
+// ---------------------------------------------------------------- Navegação e Farm (18/11)
+// Mapa ORIGINAL = mapa do F1 (só muda por "Salvar e fixar retorno"). Mapas alternativos em
+// ordem de prioridade; o agente usa a ordem, o intervalo e as chaves daqui (comando set_farm).
+let farmEdit = {};
+const FARM_MAPS = ["Arena","Dungeon","Lost Tower","Devias","Noria","Atlans","Tarkan","Icarus","Aida","Valley of Loren","Crywolf Fortress","Kanturu"];
+function farmOf(c) {
+  const k = c.machine + "|" + c.name;
+  if (!farmEdit[k]) farmEdit[k] = JSON.parse(JSON.stringify(c.farm || {mapas:["Arena"],retorno_min:60,alternativos:true,sondagem:true}));
+  return farmEdit[k];
+}
+function farmMove(k, i, d) { const f = farmEdit[k]; const j = i + d; if (j < 0 || j >= f.mapas.length) return; [f.mapas[i], f.mapas[j]] = [f.mapas[j], f.mapas[i]]; renderDrawer(); }
+function farmDel(k, i) { farmEdit[k].mapas.splice(i, 1); renderDrawer(); }
+function farmAdd(k, m) { if (m && !farmEdit[k].mapas.includes(m)) farmEdit[k].mapas.push(m); renderDrawer(); }
+function farmSet(k, key, v) { farmEdit[k][key] = v; renderDrawer(); }
+function farmSave(M, N) { const k = M + "|" + N; cmd(M, {cmd:"set_farm", char_name:N, rules:farmEdit[k]}, "navegação e farm"); delete farmEdit[k]; }
+function farmHtml(c) {
+  const k = c.machine + "|" + c.name, f = farmOf(c), M = esc(c.machine), N = esc(c.name), K = esc(k);
+  const home = c.home_spot, homeW = home ? home.world : null;
+  const cur = WORLD_OF[mapOf(c)], temp = home && cur && cur !== homeW && c.spot;
+  const nSpots = m => catalogFor(WORLD_OF[m]).length;
+  const changed = JSON.stringify(f) !== JSON.stringify(c.farm || {});
+  const rows = f.mapas.map((m, i) => `<div class="sw"><span>${i + 1}. ${esc(m)} <span class="note">(${nSpots(m)} spots no catálogo)</span></span><span>
+      <button class="sm" onclick="farmMove('${K}',${i},-1)" title="subir">↑</button><button class="sm" onclick="farmMove('${K}',${i},1)" title="descer">↓</button><button class="sm dang" onclick="farmDel('${K}',${i})" title="remover">✕</button></span></div>`).join("") || '<div class="note">nenhum mapa alternativo: com o original lotado, espera na safe</div>';
+  const opts = FARM_MAPS.filter(m => WORLD_OF[m] !== homeW && !f.mapas.includes(m)).map(m => `<option value="${esc(m)}">${esc(m)} (${nSpots(m)} spots)</option>`).join("");
+  const remaining = c.primary_retry_at == null ? null : Math.max(0, c.primary_retry_at - (S.now || Math.floor(Date.now() / 1000)));
+  return `<h2>Navegação e Farm</h2><div class="kv">
+    <span>Mapa original</span><span>${home ? `${esc(mapName(homeW))} (${home.x}, ${home.y})` : "sem F1"}</span>
+    <span>Mapa atual</span><span>${esc(mapOf(c))} ${c.pos ? `(${c.pos.join(", ")})` : ""}</span>
+    <span>Situação</span><span>${temp ? "farmando em mapa alternativo" : "no mapa original"}</span>
+    <span>Próxima tentativa de voltar</span><span>${temp ? (remaining == null ? "—" : remaining === 0 ? "pendente" : fmtDur(remaining)) : "—"}</span></div>
+    <div class="note" style="margin:6px 0">Ordem: spot original → outros spots do mapa original → mapas abaixo, na ordem → todos lotados: espera na safe e tenta em ~1 h. O mapa original só muda com "Salvar e fixar retorno" (F1).</div>
+    ${tog2(f.alternativos, `farmSet('${K}','alternativos',${!f.alternativos})`, "Procurar em mapas alternativos")}
+    ${rows}
+    <div class="btns"><select onchange="farmAdd('${K}',this.value)"><option value="">+ adicionar mapa…</option>${opts}</select></div>
+    <div class="sw"><span>Tentar voltar ao original a cada</span><span><input type="number" min="5" max="1440" style="width:70px" value="${f.retorno_min}" onchange="farmSet('${K}','retorno_min',+this.value)"> min</span></div>
+    ${tog2(f.sondagem, `farmSet('${K}','sondagem',${!f.sondagem})`, "Ir conferir pessoalmente (sondagem)")}
+    <div class="btns"><button class="pri" ${changed ? "" : "disabled"} onclick="farmSave('${M}','${N}')">Salvar navegação e farm</button>
+      <button onclick="cmd('${M}',{cmd:'return_to_original',char_name:'${N}'},'voltar ao mapa original')">Voltar ao mapa original agora</button></div>`;
+}
+function tog2(on, c2, label) { return `<div class="sw"><span>${label}</span><button class="tg ${on ? "on" : ""}" onclick="${c2}"></button></div>`; }
 async function shot(m, n) {
   await cmd(m, { cmd: "screenshot", char_name: n }, "print");
   setTimeout(() => { shotUrl[m + "|" + n] = `/api/screenshot/${encodeURIComponent(m)}/${encodeURIComponent(n)}?t=${Date.now()}`; renderDrawer(); }, 4000);

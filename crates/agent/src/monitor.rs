@@ -228,6 +228,7 @@ impl Monitor {
                 st.last_status = status.clone();
             }
             out.push(CharReport {
+                farm: None,
                 primary_retry_at: None,
                 home_spot: None,
                 pid: w.pid,
