@@ -168,9 +168,35 @@ const WORLD_OF = { Kanturu: 38, Lorencia: 1, Arena: 7, "Lost Tower": 5, Dungeon:
 // A mesma política de posse e raio usada pelo agente, sem inferir vagas fora da leitura.
 const spotNear = (a,b,r=2) => a && b && a.world === b.world && Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y)) <= r;
 function groupNames() { return new Set([...(S.spot_directory?.members||[]),...(S.chars||[])].map(c=>c.name.toLowerCase())); }
+// Numeração dos spots (dono, 18/11 20:27): 1 = o mais perto da safe a pé, até o fim do mapa.
+// Distância real pelo terreno (BFS a partir da zona segura); sem terreno/safe = ordem do catálogo.
+// Só muda o NÚMERO mostrado: nenhum char troca de spot.
+const SAFE_DIST = {};
+function safeDist(w) {
+  if (SAFE_DIST[w] !== undefined) return SAFE_DIST[w];
+  const t = terrs[w];
+  if (!t || !t.codes) { if (typeof loadTerrain === "function") loadTerrain(w); return null; }
+  const raw = atob(t.codes), W = t.w || 256, H = t.h || 256, d = new Int32Array(W * H).fill(-1), q = new Int32Array(W * H);
+  let qh = 0, qt = 0;
+  for (let i = 0; i < W * H; i++) if (raw.charCodeAt(i) === 2) { d[i] = 0; q[qt++] = i; }
+  if (!qt) return (SAFE_DIST[w] = false);
+  while (qh < qt) {
+    const i = q[qh++], x = i % W, y = (i / W) | 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = x + dx, ny = y + dy; if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx; if (d[j] >= 0 || raw.charCodeAt(j) === 1) continue;
+      d[j] = d[i] + 1; q[qt++] = j;
+    }
+  }
+  return (SAFE_DIST[w] = { d, W });
+}
 function catalogFor(w) {
   const d=S.spot_directory;
-  return d ? (d.catalog||[]).filter(e=>e.spot.world===w).map(e=>({ ...e.spot,n:e.priority+1,machine:Object.entries(d.sources||{}).find(([,v])=>v.some(c=>spotNear(c.spot,e.spot,0)))?.[0]||'' })).sort((a,b)=>a.n-b.n||a.x-b.x||a.y-b.y) : (S.catalog||[]).filter(p=>(p.world||38)===w).map(p=>({...p,world:w}));
+  const list = d ? (d.catalog||[]).filter(e=>e.spot.world===w).map(e=>({ ...e.spot,prio:e.priority,machine:Object.entries(d.sources||{}).find(([,v])=>v.some(c=>spotNear(c.spot,e.spot,0)))?.[0]||'' })) : (S.catalog||[]).filter(p=>(p.world||38)===w).map((p,i)=>({...p,world:w,prio:i}));
+  const sd = safeDist(w), dist = sp => { if (!sd) return 1e9; const v = sd.d[sp.y * sd.W + sp.x]; return v < 0 ? 1e9 : v; };
+  list.sort((a,b)=>dist(a)-dist(b)||a.prio-b.prio||a.x-b.x||a.y-b.y);
+  list.forEach((sp,i)=>{ sp.n = i + 1; sp.passos = dist(sp) < 1e9 ? dist(sp) : null; });
+  return list;
 }
 // Última leitura de cada spot (ocupação vista por algum char nosso a até 12 tiles). Fica só
 // na memória do painel: informação antiga nunca vale como confirmação em tempo real.
@@ -730,7 +756,7 @@ function drawMap() {
     g.globalAlpha = 0.18; g.drawImage(terrImgs[world], 0, 0, t.w * S3, t.h * S3); g.globalAlpha = 1;
   } else g.drawImage(terrImgs[world], 0, 0, t.w * S3, t.h * S3);
   if (world === 1) drawGolden(g);
-  for (const sp of catalogFor(world)) { const state=spotState(sp); g.strokeStyle=state.color; g.lineWidth=3; g.strokeRect(sp.x*S3-8,sp.y*S3-8,16,16); g.fillStyle=state.color; g.font="12px Segoe UI"; g.fillText("#"+sp.n,sp.x*S3+10,sp.y*S3+12); }
+  for (const sp of catalogFor(world)) { const state=spotState(sp); g.strokeStyle=state.color; g.lineWidth=3; g.strokeRect(sp.x*S3-8,sp.y*S3-8,16,16); const fs=(15/Math.sqrt(V.z)).toFixed(1); g.font=`bold ${fs}px Segoe UI`; g.lineWidth=3; g.strokeStyle="#000"; g.strokeText(String(sp.n),sp.x*S3+11,sp.y*S3+6); g.fillStyle="#fff"; g.fillText(String(sp.n),sp.x*S3+11,sp.y*S3+6); }
   for (const p of POINTS.filter(p => p.world === world)) {
     if (iconOk("mini_map_ui_portal")) g.drawImage(ICONS.mini_map_ui_portal, p.x * S3 - 9, p.y * S3 - 9, 18, 18);
     else { g.fillStyle = p.kind === "farm" ? "#f5b73b" : "#8f7bff"; g.beginPath(); g.moveTo(p.x * S3, p.y * S3 - 7); g.lineTo(p.x * S3 + 6, p.y * S3 + 5); g.lineTo(p.x * S3 - 6, p.y * S3 + 5); g.fill(); }
