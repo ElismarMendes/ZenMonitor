@@ -775,6 +775,49 @@ fn main() -> anyhow::Result<()> {
             let _ = objects::nearby(w.pid, &name, pos);
             writeln!(out, "segunda leitura (com o endereço guardado): {:?}", t1.elapsed())?;
         }
+        "goldens" => {
+            // SÓ LEITURA. Vigia os monstros em volta do char por N segundos (padrão 1500) e registra
+            // tudo o que tiver "gold" no nome, com classe e posição; no fim, todos os monstros vistos.
+            // Uso: zen-diag goldens <nome do char> [segundos]
+            use zen_agent::win::{nav, objects};
+            let name = args.get(1).ok_or_else(|| anyhow::anyhow!("falta o nome"))?.clone();
+            let secs: u64 = args.get(2).and_then(|a| a.parse().ok()).unwrap_or(1500);
+            let w = zen_agent::win::windows_list::find_by_class("The Classic MU Season 2")
+                .into_iter()
+                .find(|w| zen_core::title::parse(&w.title).name.is_some_and(|n| n.eq_ignore_ascii_case(&name)))
+                .ok_or_else(|| anyhow::anyhow!("janela do char {name} não encontrada"))?;
+            let t0 = std::time::Instant::now();
+            let mut vistos: std::collections::BTreeMap<(String, u16), u32> = Default::default();
+            let mut ultima = String::new();
+            while t0.elapsed().as_secs() < secs {
+                let s = t0.elapsed().as_secs();
+                match nav::position(w.hwnd) {
+                    None => { if ultima != "sempos" { writeln!(out, "{s:>5}s sem posição na tela")?; ultima = "sempos".into(); } }
+                    Some(pos) => match objects::nearby(w.pid, &name, pos) {
+                        None => { if ultima != "semlista" { writeln!(out, "{s:>5}s {pos:?} lista de objetos não achada")?; ultima = "semlista".into(); } }
+                        Some(v) => {
+                            for o in v.iter().filter(|o| o.kind == zen_core::objects::Kind::Monster) {
+                                *vistos.entry((o.name.clone(), o.class)).or_default() += 1;
+                            }
+                            let g: Vec<String> = v.iter().filter(|o| o.name.to_ascii_lowercase().contains("gold"))
+                                .map(|o| format!("{} classe {} {:?} em ({}, {}) dist {}", o.name, o.class, o.kind, o.x, o.y, (o.x - pos.0).abs().max((o.y - pos.1).abs()))).collect();
+                            let mapa = nav::observe_named(w.hwnd).0.unwrap_or("?");
+                            let linha = format!("{pos:?} {} objs, goldens: {}", v.len(), if g.is_empty() { "-".into() } else { g.join(" | ") });
+                            if linha != ultima {
+                                writeln!(out, "{s:>5}s {mapa} {linha}")?;
+                                ultima = linha;
+                            }
+                        }
+                    },
+                }
+                std::fs::write("resultado_goldens.txt", &out)?;
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+            writeln!(out, "\n=== monstros vistos (nome, classe, leituras) ===")?;
+            for ((n, c), k) in &vistos {
+                writeln!(out, "{n} classe {c}: {k}")?;
+            }
+        }
         "nome-pos" => {
             // SÓ LEITURA. Para cada cópia do nome do char na memória, procura a posição atual dele
             // (f32 tile*100, u16 ou u8) em até 0x1000 bytes antes/depois. Mostra o deslocamento

@@ -32,6 +32,13 @@ pub struct Obj {
     pub y: i32,
 }
 
+/// Golden Monster pelo nome (guia oficial: Golden Goblin, Budge Golden Dragon, Golden Titan,
+/// Golden Soldier, Golden Lizard King, Golden Vepar, Golden Tantalos, Golden Wheel). A conferir
+/// no cliente na primeira invasão: o nome na memória pode ser diferente do guia.
+pub fn is_golden(o: &Obj) -> bool {
+    o.kind == Kind::Monster && o.name.to_ascii_lowercase().contains("golden")
+}
+
 /// Lê UMA entrada (começando no nome). `None` se não estiver em uso ou não parecer válida.
 pub fn parse_entry(e: &[u8]) -> Option<Obj> {
     if e.len() < OFF_POS + 8 || e[OFF_LIVE] != 1 {
@@ -43,7 +50,9 @@ pub fn parse_entry(e: &[u8]) -> Option<Obj> {
         4 => Kind::Npc,
         _ => return None,
     };
-    let end = e[..16].iter().position(|&c| c == 0)?;
+    // Nome de monstro pode passar de 16 letras ("Budge Golden Dragon" tem 19). O campo vai até
+    // a classe (0x4c); 32 basta.
+    let end = e[..32].iter().position(|&c| c == 0)?;
     if end < 2 || !e[..end].iter().all(|&c| (0x20..0x7f).contains(&c)) {
         return None;
     }
