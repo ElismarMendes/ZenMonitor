@@ -135,6 +135,7 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
     let mut last_locks = String::new();
     let mut chat = ChatReader::default();
     let mut notices = zen_agent::win::avisos::NoticeReader::default();
+    zen_agent::win::nav::set_nav_tuning(cfg.navegacao);
     let mut last_chat = Instant::now() - CHAT_EVERY;
     let mut cpu = health::CpuMeter::new();
     let started = Instant::now();

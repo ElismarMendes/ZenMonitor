@@ -120,6 +120,8 @@ pub struct AgentConfig {
     /// Spot de cada char no Kanturu 1: nome -> [x, y]. Gravado pelo botão "Salvar spot" do
     /// painel. Último campo de propósito: no TOML vira a tabela [spots], que tem de vir no fim.
     pub spots: std::collections::BTreeMap<String, [i32; 2]>,
+    /// Parâmetros da navegação (vigia de progresso, desvio de mobs). Tabela `[navegacao]`.
+    pub navegacao: zen_core::navegacao::NavTuning,
 }
 
 impl Default for AgentConfig {
@@ -145,6 +147,7 @@ impl Default for AgentConfig {
             ram_paused: false,
             chat_enabled: false,
             server_notices: true,
+            navegacao: Default::default(),
             automation_enabled: false,
             automation_idle_s: 60,
             manual_hold_s: 5,

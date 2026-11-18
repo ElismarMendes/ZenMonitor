@@ -836,6 +836,9 @@ fn main() -> anyhow::Result<()> {
                 .into_iter()
                 .find(|w| zen_core::title::parse(&w.title).name.is_some_and(|n| n.eq_ignore_ascii_case(&name)))
                 .ok_or_else(|| anyhow::anyhow!("janela do char {name} não encontrada"))?;
+            // Sem isto o andar não lia os mobs da memória (desvio e skill às cegas): foi o caso
+            // das 08:00 de 18/11.
+            nav::set_char_name(w.hwnd, &name);
             let t = nav::world_terrain_of(w.hwnd, 1).map_err(|e| anyhow::anyhow!(e))?;
             let t0 = std::time::Instant::now();
             let log = |out: &mut String, m: String| {
@@ -878,16 +881,42 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+            // Patrulha por cobertura: células de 16 tiles até `raio` tiles do centro da cidade, cada
+            // uma com um tile andável e alcançável a pé; o alvo é a célula nunca vista (ou a
+            // mais antiga) mais perto. O alcance de visão (12) é o que a lista de objetos mostrou
+            // em volta do char em Lorencia (objetos a até ~13 tiles).
+            let mut cob = zen_core::navegacao::Coverage::new(16, 12);
+            let mut cells: Vec<((i32, i32), (i32, i32))> = Vec::new();
+            for ky in 0..16 {
+                for kx in 0..16 {
+                    let ctr = cob.center((kx, ky));
+                    if cheb(ctr, centro) > raio + 8 { continue; }
+                    let mut achou = None;
+                    'busca: for r in 0..7 {
+                        for dy in -r..=r {
+                            for dx in -r..=r {
+                                let q = (ctr.0 + dx, ctr.1 + dy);
+                                if (0..256).contains(&q.0) && (0..256).contains(&q.1) && t.walkable(q.0, q.1) && !t.is_safezone(q.0, q.1)
+                                    && alcance[q.1 as usize * 256 + q.0 as usize] != u16::MAX {
+                                    achou = Some(q);
+                                    break 'busca;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(q) = achou { cells.push(((kx, ky), q)); }
+                }
+            }
+            let mut historico = std::fs::OpenOptions::new().create(true).append(true).open("goldens_historico.csv").ok();
             if let Some(p) = posto {
                 anel = vec![p];
                 log(&mut out, format!("modo posto em {p:?}"));
             } else {
-                log(&mut out, format!("anel de patrulha ({} pontos): {anel:?}", anel.len()));
+                log(&mut out, format!("patrulha por cobertura: {} células de 16 tiles até {raio} tiles da cidade", cells.len()));
             }
             let status = |_m: String| {};
             let ler = |pos: (i32, i32)| objects::nearby(w.pid, &name, pos).unwrap_or_default();
             // Começa no ponto do anel mais perto do char.
-            let mut i = nav::position(w.hwnd).and_then(|p| (0..anel.len()).min_by_key(|&k| cheb(anel[k], p))).unwrap_or(0);
             let mut vistos: std::collections::BTreeMap<String, u32> = Default::default();
             let mut falhas_seguidas = 0;
             'caca: while t0.elapsed().as_secs() < secs {
@@ -904,13 +933,18 @@ fn main() -> anyhow::Result<()> {
                 if let Some(b) = objs.iter().find(|o| zen_core::objects::is_golden_boss(o) && cheb((o.x, o.y), pos) <= 12) {
                     log(&mut out, format!("CHEFE {} classe {} em ({}, {}): fugindo para a safe e parando", b.name, b.class, b.x, b.y));
                     let _ = nav::set_helper(w.hwnd, false);
-                    let _ = nav::walk(w.hwnd, &t, (123, 129), &status);
+                    let _ = nav::walk_near(w.hwnd, &t, (123, 129), &status);
                     break;
                 }
                 let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o) && (posto.is_none() || cheb((o.x, o.y), pos) <= 12)).cloned().collect();
                 gs.sort_by_key(|o| cheb((o.x, o.y), pos));
                 if let Some(g) = gs.first().cloned() {
                     *vistos.entry(format!("{} classe {}", g.name, g.class)).or_default() += 1;
+                    if let Some(f) = historico.as_mut() {
+                        use std::io::Write;
+                        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                        let _ = writeln!(f, "{ts};{};{};{};{};confirmado na memória;{name}", g.name, g.class, g.x, g.y);
+                    }
                     log(&mut out, format!("GOLDEN {} classe {} em ({}, {}), char em {pos:?}, dist {}", g.name, g.class, g.x, g.y, cheb((g.x, g.y), pos)));
                     // Chegar colado (até 2 tiles) com o helper DESLIGADO; até 3 tentativas porque ele se mexe.
                     let mut alvo = (g.x, g.y);
@@ -918,7 +952,7 @@ fn main() -> anyhow::Result<()> {
                     for tentativa in 0..3 {
                         if perto { break; }
                         let _ = nav::set_helper(w.hwnd, false);
-                        let r = nav::walk(w.hwnd, &t, alvo, &status);
+                        let r = nav::walk_near(w.hwnd, &t, alvo, &status);
                         let p = nav::position(w.hwnd).unwrap_or(pos);
                         let agora = ler(p);
                         let Some(g2) = agora.iter().filter(|o| zen_core::objects::is_golden(o)).min_by_key(|o| cheb((o.x, o.y), p)) else {
@@ -956,16 +990,12 @@ fn main() -> anyhow::Result<()> {
                     log(&mut out, "  2 min lutando sem resolver: volta à patrulha".into());
                     continue;
                 }
-                if anel.is_empty() {
-                    std::thread::sleep(std::time::Duration::from_secs(2));
-                    continue;
-                }
                 if let Some(p) = posto {
                     // Parado no posto com o helper ligado; longe do posto (o helper arrastou ou a
                     // perseguição levou) volta andando com o helper desligado.
                     if cheb(p, pos) > 4 {
                         let _ = nav::set_helper(w.hwnd, false);
-                        match nav::walk(w.hwnd, &t, p, &status) {
+                        match nav::walk_near(w.hwnd, &t, p, &status) {
                             Ok(q) => log(&mut out, format!("de volta ao posto {q:?}")),
                             Err(e) => {
                                 log(&mut out, format!("volta ao posto falhou: {e}"));
@@ -977,19 +1007,34 @@ fn main() -> anyhow::Result<()> {
                     std::thread::sleep(std::time::Duration::from_millis(1500));
                     continue;
                 }
-                // Sem golden: próximo ponto do anel, helper desligado. Trecho que falhar é pulado.
-                let alvo = anel[i % anel.len()];
-                i += 1;
-                if cheb(alvo, pos) <= 2 { continue; }
+                // Sem golden: próxima célula da cobertura (nunca vista ou mais antiga, perto),
+                // helper desligado. Trecho que falha marca a célula por 3 min (não repete o
+                // caminho que acabou de falhar).
+                let agora = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                cob.mark(pos, agora());
+                let dist = t.distances_from(&[pos]);
+                let reach = |q: (i32, i32)| { let d = dist[q.1 as usize * 256 + q.0 as usize]; (d != u16::MAX).then_some(d as u32) };
+                let Some(alvo) = cob.next_target(agora(), 180, &cells, &reach) else {
+                    log(&mut out, "patrulha: nenhuma célula alcançável; esperando".into());
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    continue;
+                };
                 let _ = nav::set_helper(w.hwnd, false);
                 let t_trecho = std::time::Instant::now();
-                match nav::walk(w.hwnd, &t, alvo, &status) {
-                    Ok(p) => { falhas_seguidas = 0; log(&mut out, format!("patrulha: {p:?} em {} s", t_trecho.elapsed().as_secs())); }
+                let rota = t.path(pos, alvo).or_else(|| t.path_escape(pos, alvo)).unwrap_or_default();
+                match nav::walk_near(w.hwnd, &t, alvo, &status) {
+                    Ok(p) => {
+                        falhas_seguidas = 0;
+                        for q in rota.iter().step_by(6) { cob.mark(*q, agora()); }
+                        cob.mark(p, agora());
+                        log(&mut out, format!("patrulha: {pos:?} -> {p:?} em {} s; cobertura {:.0}%", t_trecho.elapsed().as_secs(), 100.0 * cob.covered(agora(), 900, &cells)));
+                    }
                     Err(e) => {
                         falhas_seguidas += 1;
+                        cob.mark_failed(alvo, agora());
+                        if let Some(p) = nav::position(w.hwnd) { cob.mark(p, agora()); }
                         log(&mut out, format!("patrulha: {alvo:?} falhou em {} s: {e}", t_trecho.elapsed().as_secs()));
-                        if falhas_seguidas >= 3 { i += 2; falhas_seguidas = 0; }
-                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        std::thread::sleep(std::time::Duration::from_secs(if falhas_seguidas >= 3 { 5 } else { 1 }));
                     }
                 }
             }
