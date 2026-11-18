@@ -35,8 +35,17 @@ pub struct Obj {
 /// Golden Monster pelo nome (guia oficial: Golden Goblin, Budge Golden Dragon, Golden Titan,
 /// Golden Soldier, Golden Lizard King, Golden Vepar, Golden Tantalos, Golden Wheel). A conferir
 /// no cliente na primeira invasão: o nome na memória pode ser diferente do guia.
+///
+/// Visto em 18/11 04:00 em Lorencia: "Golden Budge Dragon" classe 43 (o guia escreve "Budge
+/// Golden Dragon") e, aos 20 min do evento, "Great Golden Dragon" classe 501, que matou o x9901
+/// (1026 resets) em ~10 s. Chefe perigoso: NÃO é alvo (ver `is_golden_boss`).
 pub fn is_golden(o: &Obj) -> bool {
-    o.kind == Kind::Monster && o.name.to_ascii_lowercase().contains("golden")
+    o.kind == Kind::Monster && o.name.to_ascii_lowercase().contains("golden") && !is_golden_boss(o)
+}
+
+/// Chefe dourado que mata o char: fugir/não chegar perto.
+pub fn is_golden_boss(o: &Obj) -> bool {
+    o.kind == Kind::Monster && (o.class == 501 || o.name.to_ascii_lowercase().starts_with("great golden"))
 }
 
 /// Lê UMA entrada (começando no nome). `None` se não estiver em uso ou não parecer válida.
@@ -83,6 +92,19 @@ pub fn parse_block(buf: &[u8], anchor: usize) -> Vec<Obj> {
         o += STRIDE;
     }
     out
+}
+
+#[cfg(test)]
+mod golden_tests {
+    use super::*;
+    fn m(name: &str, class: u16) -> Obj { Obj { kind: Kind::Monster, name: name.into(), class, x: 0, y: 0 } }
+    #[test]
+    fn golden_e_chefe() {
+        assert!(is_golden(&m("Golden Budge Dragon", 43)));
+        assert!(!is_golden(&m("Budge Dragon", 2)));
+        assert!(!is_golden(&m("Great Golden Dragon", 501)));
+        assert!(is_golden_boss(&m("Great Golden Dragon", 501)));
+    }
 }
 
 #[cfg(test)]

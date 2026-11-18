@@ -871,6 +871,13 @@ fn main() -> anyhow::Result<()> {
                     break;
                 }
                 let objs = objects::nearby(w.pid, &name, pos).unwrap_or_default();
+                // Chefe dourado (Great Golden Dragon) a 12 tiles ou menos: volta para a safe e para.
+                if let Some(b) = objs.iter().find(|o| zen_core::objects::is_golden_boss(o) && (o.x - pos.0).abs().max((o.y - pos.1).abs()) <= 12) {
+                    log(&mut out, format!("CHEFE {} classe {} em ({}, {}): fugindo para a safe e parando", b.name, b.class, b.x, b.y));
+                    let _ = nav::set_helper(w.hwnd, false);
+                    let _ = nav::walk(w.hwnd, &t, (123, 129), &status);
+                    break;
+                }
                 let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o)).collect();
                 gs.sort_by_key(|o| (o.x - pos.0).abs().max((o.y - pos.1).abs()));
                 if let Some(g) = gs.first() {
