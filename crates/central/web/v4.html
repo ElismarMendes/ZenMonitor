@@ -477,6 +477,12 @@ function drawGolden(g) {
   if (!GOLDEN) return;
   const fresh = goldenFresh(), cel = (GOLDEN.celula || 16) * S3;
   if (fresh) for (const c of GOLDEN.vistas || []) { g.fillStyle = "rgba(47,210,122,0.18)"; g.fillRect(c.x * S3, c.y * S3, cel, cel); }
+  const rota = GOLDEN.rota || [];
+  if (rota.length) {
+    g.strokeStyle = "rgba(59,158,255,0.8)"; g.lineWidth = 2; g.setLineDash([6, 4]); g.beginPath();
+    rota.forEach((p, i) => i ? g.lineTo(p[0] * S3, p[1] * S3) : g.moveTo(p[0] * S3, p[1] * S3)); g.closePath(); g.stroke(); g.setLineDash([]);
+    rota.forEach((p, i) => { const atual = i === (GOLDEN.rota_i || 0) % rota.length; g.fillStyle = atual ? "#3b9eff" : "#0b1a2a"; g.strokeStyle = "#3b9eff"; g.beginPath(); g.arc(p[0] * S3, p[1] * S3, 9, 0, 7); g.fill(); g.stroke(); g.fillStyle = "#fff"; g.font = "bold 11px Segoe UI"; g.fillText(String(i + 1), p[0] * S3 - 3, p[1] * S3 + 4); });
+  }
   for (const r of GOLDEN.regioes || []) { g.strokeStyle = "#f5c542"; g.lineWidth = 2; g.beginPath(); g.arc(r.x * S3, r.y * S3, 10 * S3, 0, 7); g.stroke(); g.fillStyle = "#f5c542"; g.font = "bold 12px Segoe UI"; g.fillText(r.count + "× (" + r.invasoes + " inv.)", r.x * S3 + 12, r.y * S3 - 12); }
   if (fresh) {
     for (const c of GOLDEN.confirmados || []) { g.strokeStyle = "#f2546a"; g.lineWidth = 3; g.beginPath(); g.moveTo(c.x * S3 - 8, c.y * S3 - 8); g.lineTo(c.x * S3 + 8, c.y * S3 + 8); g.moveTo(c.x * S3 + 8, c.y * S3 - 8); g.lineTo(c.x * S3 - 8, c.y * S3 + 8); g.stroke(); }
@@ -488,7 +494,7 @@ function goldenHtml() {
   const now = S.now || Math.floor(Date.now() / 1000), fresh = goldenFresh();
   return `<div class="kpi" style="margin:8px 0"><div class="l">Patrulha Golden ${fresh ? "(ativa ou recente)" : "(última, antiga)"} · ${esc(GOLDEN.char || "")}</div>
     <div class="s">Cobertura: ${Math.round(100 * (GOLDEN.cobertura || 0))}% · tempo: ${fmtDur(now - (GOLDEN.inicio || now))} · alcance visto na memória: ${GOLDEN.alcance_visto || 0} tiles · goldens nesta patrulha: ${(GOLDEN.confirmados || []).length} · regiões com histórico: ${(GOLDEN.regioes || []).length}</div>
-    <div class="s">🟩 examinada (leitura real) · 🟡 histórico de aparições · ❌ golden confirmado · ⚪ char</div></div>`;
+    <div class="s">🟩 examinada (leitura real) · 🟡 histórico de aparições · 🔵 waypoints da rota (o cheio é o próximo) · ❌ golden confirmado · ⚪ char</div></div>`;
 }
 
 // ---------------------------------------------------------------- Navegação e Farm (18/11)

@@ -414,3 +414,88 @@ mod golden_hist_tests {
         assert_eq!(t, Some(c.center((2, 2))));
     }
 }
+
+// ---------------------------------------------------------------- rota de waypoints (golden)
+// Dono (18/11 18:01): a patrulha por cobertura ficava rodando em volta da cidade (raio 40 do
+// centro) e nunca chegava onde os goldens apareceram (195..200,131..136 fica a ~65 tiles).
+// Agora: waypoints no campo, saindo da cidade, passando primeiro pelas regiões do histórico.
+
+/// Waypoints: centro de cada região do histórico (mais avistamentos primeiro) e depois pontos do
+/// campo bem espalhados (o mais longe de todos os já escolhidos), só entre `candidatos` (tiles
+/// andáveis e alcançáveis) a pelo menos `min_cidade` tiles da cidade. No máximo `n`.
+pub fn golden_waypoints(regioes: &[Region], candidatos: &[(i32, i32)], cidade: (i32, i32), min_cidade: i32, n: usize) -> Vec<(i32, i32)> {
+    let cheb = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
+    let campo: Vec<(i32, i32)> = candidatos.iter().copied().filter(|c| cheb(*c, cidade) >= min_cidade).collect();
+    let mut out: Vec<(i32, i32)> = Vec::new();
+    let mut regs: Vec<&Region> = regioes.iter().collect();
+    regs.sort_by_key(|r| std::cmp::Reverse(r.count));
+    for r in regs {
+        if out.len() >= n { break; }
+        // Tile andável mais perto do centro da região (o centro pode cair numa árvore).
+        if let Some(c) = candidatos.iter().copied().min_by_key(|c| cheb(*c, (r.x, r.y))).filter(|c| cheb(*c, (r.x, r.y)) <= 8) {
+            if !out.iter().any(|o| cheb(*o, c) < 12) {
+                out.push(c);
+            }
+        }
+    }
+    while out.len() < n {
+        let longe = campo.iter().copied().filter(|c| !out.contains(c)).max_by_key(|c| {
+            let d = out.iter().map(|o| cheb(*o, *c)).min().unwrap_or_else(|| cheb(*c, cidade));
+            (d, -c.0, -c.1)
+        });
+        match longe {
+            Some(c) if out.iter().all(|o| cheb(*o, c) >= 16) => out.push(c),
+            _ => break,
+        }
+    }
+    out
+}
+
+/// Ordem de visita: sempre o próximo mais perto pelo caminho (sem caminho = fim da lista).
+pub fn tour_order(pontos: &[(i32, i32)], inicio: (i32, i32), dist: &dyn Fn((i32, i32), (i32, i32)) -> Option<u32>) -> Vec<(i32, i32)> {
+    let mut resto: Vec<(i32, i32)> = pontos.to_vec();
+    let mut out = Vec::new();
+    let mut cur = inicio;
+    while !resto.is_empty() {
+        let i = (0..resto.len()).min_by_key(|&i| (dist(cur, resto[i]).is_none(), dist(cur, resto[i]).unwrap_or(u32::MAX), i)).unwrap();
+        cur = resto.remove(i);
+        out.push(cur);
+    }
+    out
+}
+
+/// Próximo passo curto da rota (até `passo` tiles): a memória é lida a cada passo, então o
+/// char vigia o caminho inteiro, não só o destino.
+pub fn sub_leg(rota: &[(i32, i32)], passo: usize) -> Option<(i32, i32)> {
+    if rota.is_empty() { return None; }
+    Some(rota[passo.min(rota.len()) - 1])
+}
+
+#[cfg(test)]
+mod waypoint_tests {
+    use super::*;
+    #[test]
+    fn historico_primeiro_depois_campo_espalhado_longe_da_cidade() {
+        let regs = [Region { x: 198, y: 133, count: 2, invasoes: 1, last_at: 0 }];
+        let mut cand = Vec::new();
+        for y in (10..250).step_by(8) { for x in (10..250).step_by(8) { cand.push((x, y)); } }
+        let w = golden_waypoints(&regs, &cand, (135, 128), 30, 6);
+        assert_eq!(w.len(), 6);
+        assert!((w[0].0 - 198).abs() <= 8 && (w[0].1 - 133).abs() <= 8, "região do histórico vem primeiro: {:?}", w[0]);
+        for p in &w[1..] {
+            assert!((p.0 - 135).abs().max((p.1 - 128).abs()) >= 30, "waypoint dentro da cidade: {p:?}");
+        }
+        for i in 0..w.len() { for j in i + 1..w.len() {
+            assert!((w[i].0 - w[j].0).abs().max((w[i].1 - w[j].1).abs()) >= 12);
+        }}
+    }
+    #[test]
+    fn tour_vizinho_mais_perto_e_passo_curto() {
+        let cheb = |a: (i32, i32), b: (i32, i32)| Some(((a.0 - b.0).abs().max((a.1 - b.1).abs())) as u32);
+        assert_eq!(tour_order(&[(100, 0), (10, 0), (50, 0)], (0, 0), &cheb), vec![(10, 0), (50, 0), (100, 0)]);
+        let rota: Vec<(i32, i32)> = (1..=25).map(|i| (i, 0)).collect();
+        assert_eq!(sub_leg(&rota, 10), Some((10, 0)));
+        assert_eq!(sub_leg(&rota[..3], 10), Some((3, 0)));
+        assert_eq!(sub_leg(&[], 10), None);
+    }
+}

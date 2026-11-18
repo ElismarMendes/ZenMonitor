@@ -829,6 +829,10 @@ fn main() -> anyhow::Result<()> {
             let raio: i32 = args.get(3).and_then(|a| a.parse().ok()).unwrap_or(40);
             // Modo posto (dono, 18/11 09:04): fica parado num tile com o helper ligado e só anda
             // quando um golden aparece a até 12 tiles. Uso: caca-golden <nome> <seg> posto <x> <y>
+            // Modo rota (dono, 18/11 18:01): waypoints no campo, saindo da cidade e passando pelas
+            // regiões do histórico; lê a memória a cada ~10 tiles do caminho. Uso: caca-golden <nome> <seg> rota
+            let modo_rota = args.get(3).map(|s| s.as_str()) == Some("rota");
+            let raio: i32 = if modo_rota { 40 } else { raio };
             let posto: Option<(i32, i32)> = (args.get(3).map(|s| s.as_str()) == Some("posto"))
                 .then(|| Some((args.get(4)?.parse().ok()?, args.get(5)?.parse().ok()?)))
                 .flatten();
@@ -921,9 +925,46 @@ fn main() -> anyhow::Result<()> {
             let mut leituras_falhas = 0u32;
             let mut confirmados: Vec<(String, i32, i32, u64)> = Vec::new();
             log(&mut out, format!("histórico: {} avistamentos, {} regiões em Lorencia", hist.len(), zen_core::navegacao::regions(&hist, 1, 10).len()));
+            // Waypoints do modo rota: arquivo golden_waypoints.json ([[x,y],...]) manda; senão automático.
+            let wp_path = hist_path.with_file_name("golden_waypoints.json");
+            let mut rota_wps: Vec<(i32, i32)> = Vec::new();
+            let mut rota_i = 0usize;
+            let mut rota_falhas = 0u32;
+            let plano = |hist: &[zen_core::navegacao::Sighting], de: (i32, i32)| -> Vec<(i32, i32)> {
+                let ok = |q: (i32, i32)| (1..255).contains(&q.0) && (1..255).contains(&q.1) && t.walkable(q.0, q.1) && !t.is_safezone(q.0, q.1) && alcance[q.1 as usize * 256 + q.0 as usize] != u16::MAX;
+                let manual: Option<Vec<(i32, i32)>> = std::fs::read_to_string(&wp_path).ok().and_then(|x| serde_json::from_str::<Vec<(i32, i32)>>(&x).ok()).filter(|v| !v.is_empty());
+                let pts = match manual {
+                    Some(v) => v.into_iter().filter(|q| ok(*q)).collect::<Vec<_>>(),
+                    None => {
+                        let mut cand = Vec::new();
+                        for y in (4..252).step_by(8) {
+                            for x in (4..252).step_by(8) {
+                                'n: for r in 0..4 {
+                                    for dy in -r..=r { for dx in -r..=r {
+                                        if ok((x + dx, y + dy)) { cand.push((x + dx, y + dy)); break 'n; }
+                                    }}
+                                }
+                            }
+                        }
+                        zen_core::navegacao::golden_waypoints(&zen_core::navegacao::regions(hist, 1, 10), &cand, centro, 30, 8)
+                    }
+                };
+                let cache: std::cell::RefCell<std::collections::HashMap<(i32, i32), Vec<u16>>> = Default::default();
+                let dist = |a: (i32, i32), b: (i32, i32)| {
+                    let mut c = cache.borrow_mut();
+                    let d = c.entry(a).or_insert_with(|| t.distances_from(&[a]));
+                    let v = d[b.1 as usize * 256 + b.0 as usize];
+                    (v != u16::MAX).then_some(v as u32)
+                };
+                zen_core::navegacao::tour_order(&pts, de, &dist)
+            };
             if let Some(p) = posto {
                 anel = vec![p];
                 log(&mut out, format!("modo posto em {p:?}"));
+            } else if modo_rota {
+                let de = nav::position(w.hwnd).unwrap_or(centro);
+                rota_wps = plano(&hist, de);
+                log(&mut out, format!("modo rota: {} waypoints {:?} ({})", rota_wps.len(), rota_wps, if wp_path.exists() { "do arquivo golden_waypoints.json" } else { "automáticos: histórico primeiro, depois campo espalhado a 30+ tiles da cidade" }));
             } else {
                 log(&mut out, format!("patrulha por cobertura: {} células de 16 tiles até {raio} tiles da cidade", cells.len()));
             }
@@ -959,7 +1000,8 @@ fn main() -> anyhow::Result<()> {
                     let cel: Vec<_> = cob.seen_cells().into_iter().map(|((kx, ky), t)| serde_json::json!({"x": kx * 16, "y": ky * 16, "t": t})).collect();
                     let st = serde_json::json!({"char": name, "at": agora_s, "inicio": inicio_unix, "pos": [pos.0, pos.1], "celula": 16,
                         "vistas": cel, "regioes": regs, "confirmados": confirmados.iter().map(|(n, x, y, t)| serde_json::json!({"name": n, "x": x, "y": y, "at": t})).collect::<Vec<_>>(),
-                        "cobertura": cob.covered(agora_s, revisita_s.max(600), &cells), "alcance_visto": alcance_visto});
+                        "cobertura": cob.covered(agora_s, revisita_s.max(600), &cells), "alcance_visto": alcance_visto,
+                        "rota": rota_wps.iter().map(|p| [p.0, p.1]).collect::<Vec<_>>(), "rota_i": rota_i});
                     let _ = std::fs::write(&painel_path, st.to_string());
                 }
                 let objs = lido.unwrap_or_default();
@@ -1047,6 +1089,49 @@ fn main() -> anyhow::Result<()> {
                     }
                     let _ = nav::set_helper(w.hwnd, true);
                     std::thread::sleep(std::time::Duration::from_millis(1500));
+                    continue;
+                }
+                if modo_rota {
+                    if rota_wps.is_empty() {
+                        log(&mut out, "rota: nenhum waypoint alcançável; parei".into());
+                        break;
+                    }
+                    let wp = rota_wps[rota_i % rota_wps.len()];
+                    let proximo = |i: &mut usize, falhas: &mut u32, hist: &[zen_core::navegacao::Sighting], wps: &mut Vec<(i32, i32)>, pos: (i32, i32)| {
+                        *i += 1;
+                        *falhas = 0;
+                        // Fim da volta: replaneja (o histórico pode ter ganhado avistamentos).
+                        if *i >= wps.len() {
+                            *i = 0;
+                            let novo = plano(hist, pos);
+                            if !novo.is_empty() { *wps = novo; }
+                        }
+                    };
+                    if cheb(pos, wp) <= 3 {
+                        log(&mut out, format!("rota: waypoint {}/{} {wp:?} alcançado", rota_i % rota_wps.len() + 1, rota_wps.len()));
+                        proximo(&mut rota_i, &mut rota_falhas, &hist, &mut rota_wps, pos);
+                        continue;
+                    }
+                    let caminho = t.path(pos, wp).or_else(|| t.path_escape(pos, wp)).unwrap_or_default();
+                    let Some(passo) = zen_core::navegacao::sub_leg(&caminho, 10) else {
+                        log(&mut out, format!("rota: sem caminho até {wp:?}; pulando"));
+                        proximo(&mut rota_i, &mut rota_falhas, &hist, &mut rota_wps, pos);
+                        continue;
+                    };
+                    let _ = nav::set_helper(w.hwnd, false);
+                    let t_trecho = std::time::Instant::now();
+                    match nav::walk_close(w.hwnd, &t, passo, &status) {
+                        Ok(_) => rota_falhas = 0,
+                        Err(e) => {
+                            rota_falhas += 1;
+                            log(&mut out, format!("rota: passo {pos:?} -> {passo:?} falhou em {} s ({rota_falhas}/3): {e}", t_trecho.elapsed().as_secs()));
+                            if rota_falhas >= 3 {
+                                log(&mut out, format!("rota: {wp:?} inacessível agora; próximo waypoint"));
+                                proximo(&mut rota_i, &mut rota_falhas, &hist, &mut rota_wps, pos);
+                            }
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
+                    }
                     continue;
                 }
                 // Sem golden: próxima célula da cobertura (nunca vista ou mais antiga, perto),

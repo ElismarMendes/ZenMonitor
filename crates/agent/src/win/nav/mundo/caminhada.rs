@@ -183,6 +183,7 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
         let mut cur_px = (hx, hy);
         let mut still = 0;
         let mut best = route(last, target).map(|p| p.len()).unwrap_or(usize::MAX);
+        let mut voltas_npc = 0u32;
         loop {
             sleep(250);
             if t0.elapsed().as_secs() > 240 {
@@ -190,6 +191,12 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
             }
             crate::win::spots::check_movement_epoch()?;
             let Some(p) = position(hwnd).filter(|p| cheb(*p, last) <= 4) else { continue };
+            // NPC que anda (Wandering Merchant, 18/11 17:58): a posição lida no começo do trecho
+            // fica velha; relê da memória a cada ~1 s para o cursor desviar dele.
+            voltas_npc += 1;
+            if voltas_npc % 4 == 0 {
+                refresh_live_npcs(hwnd, p);
+            }
             crate::win::spots::check_approach_at(hwnd, t.world, p, false)?;
             if p == last {
                 still += 1;
