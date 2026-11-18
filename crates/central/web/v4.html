@@ -462,6 +462,32 @@ function renderDrawer() {
     <img class="shot" id="shot" ${shotUrl[drawerChar] ? `src="${shotUrl[drawerChar]}"` : 'style="display:none"'}>`);
   $("dbody").scrollTop = drawerScroll;
 }
+// ---------------------------------------------------------------- Patrulha Golden (18/11)
+// Lido de golden_patrulha.json (escrito pela patrulha a cada leitura). Verde = célula examinada
+// nesta patrulha (leitura da memória funcionou ali); amarelo = região com histórico (aparições
+// reais, não ponto fixo de nascimento); vermelho = golden confirmado agora; branco = char.
+let GOLDEN = null;
+async function loadGolden() { try { const r = await fetch("/api/golden"); GOLDEN = r.ok ? await r.json() : null; } catch { GOLDEN = null; } }
+setInterval(() => { if (world === 1) loadGolden(); }, 5000);
+function goldenFresh() { return GOLDEN && GOLDEN.at && ((S.now || Date.now() / 1000) - GOLDEN.at) < 1800; }
+function drawGolden(g) {
+  if (!GOLDEN) return;
+  const fresh = goldenFresh(), cel = (GOLDEN.celula || 16) * S3;
+  if (fresh) for (const c of GOLDEN.vistas || []) { g.fillStyle = "rgba(47,210,122,0.18)"; g.fillRect(c.x * S3, c.y * S3, cel, cel); }
+  for (const r of GOLDEN.regioes || []) { g.strokeStyle = "#f5c542"; g.lineWidth = 2; g.beginPath(); g.arc(r.x * S3, r.y * S3, 10 * S3, 0, 7); g.stroke(); g.fillStyle = "#f5c542"; g.font = "bold 12px Segoe UI"; g.fillText(r.count + "× (" + r.invasoes + " inv.)", r.x * S3 + 12, r.y * S3 - 12); }
+  if (fresh) {
+    for (const c of GOLDEN.confirmados || []) { g.strokeStyle = "#f2546a"; g.lineWidth = 3; g.beginPath(); g.moveTo(c.x * S3 - 8, c.y * S3 - 8); g.lineTo(c.x * S3 + 8, c.y * S3 + 8); g.moveTo(c.x * S3 + 8, c.y * S3 - 8); g.lineTo(c.x * S3 - 8, c.y * S3 + 8); g.stroke(); }
+    if (GOLDEN.pos) { g.fillStyle = "#fff"; g.beginPath(); g.arc(GOLDEN.pos[0] * S3, GOLDEN.pos[1] * S3, 5, 0, 7); g.fill(); }
+  }
+}
+function goldenHtml() {
+  if (world !== 1 || !GOLDEN) return "";
+  const now = S.now || Math.floor(Date.now() / 1000), fresh = goldenFresh();
+  return `<div class="kpi" style="margin:8px 0"><div class="l">Patrulha Golden ${fresh ? "(ativa ou recente)" : "(última, antiga)"} · ${esc(GOLDEN.char || "")}</div>
+    <div class="s">Cobertura: ${Math.round(100 * (GOLDEN.cobertura || 0))}% · tempo: ${fmtDur(now - (GOLDEN.inicio || now))} · alcance visto na memória: ${GOLDEN.alcance_visto || 0} tiles · goldens nesta patrulha: ${(GOLDEN.confirmados || []).length} · regiões com histórico: ${(GOLDEN.regioes || []).length}</div>
+    <div class="s">🟩 examinada (leitura real) · 🟡 histórico de aparições · ❌ golden confirmado · ⚪ char</div></div>`;
+}
+
 // ---------------------------------------------------------------- Navegação e Farm (18/11)
 // Mapa ORIGINAL = mapa do F1 (só muda por "Salvar e fixar retorno"). Mapas alternativos em
 // ordem de prioridade; o agente usa a ordem, o intervalo e as chaves daqui (comando set_farm).
@@ -586,7 +612,7 @@ VIEWS.maps = () => {
     return '<tr><td>'+sp.n+'<div class="note">'+world+':'+sp.x+':'+sp.y+'</div></td><td class="num">'+sp.x+', '+sp.y+'</td><td><span class="st '+state.kind+'">'+state.label+'</span><div class="note">'+names+(state.foreign.length?'<br>Presença externa: '+state.foreign.map(esc).join(', '):'')+'<br>'+esc(state.seen)+'</div></td><td>'+toggle+action+'</td></tr>';
   }).join('')+'</tbody></table>';
   const t = terrs[world];
-  return `<h1>Mapas</h1><div class="sub">Terreno lido do cliente do jogo (verde = andável, azul = zona segura). Todos os mapas do M foram conferidos no jogo (11/11) e aceitam "ir até". F1 fixa o retorno; F2 cataloga sem trocar o retorno.</div>
+  return `<h1>Mapas</h1>${goldenHtml()}<div class="sub">Terreno lido do cliente do jogo (verde = andável, azul = zona segura). Todos os mapas do M foram conferidos no jogo (11/11) e aceitam "ir até". F1 fixa o retorno; F2 cataloga sem trocar o retorno.</div>
   <div class="tools"><select id="mapsel">${MAPS.map(m => `<option value="${m.world}" ${m.world === world ? "selected" : ""} ${m.terrain ? "" : "disabled"}>${esc(m.name)}${m.validated ? "" : " (não calibrado)"}${m.terrain ? "" : " — sem arquivo"}</option>`).join("")}</select>
   <span class="note">${here.length} personagem(ns) aqui</span>
   <select id="layer"><option value="jogo" ${mapLayer === "jogo" ? "selected" : ""}>desenho do jogo</option><option value="terreno" ${mapLayer === "terreno" ? "selected" : ""}>terreno (andável / bloqueado)</option></select>
@@ -646,6 +672,7 @@ function drawMap() {
     // zona segura por cima, bem leve, para saber onde o helper não liga
     g.globalAlpha = 0.18; g.drawImage(terrImgs[world], 0, 0, t.w * S3, t.h * S3); g.globalAlpha = 1;
   } else g.drawImage(terrImgs[world], 0, 0, t.w * S3, t.h * S3);
+  if (world === 1) drawGolden(g);
   for (const sp of catalogFor(world)) { const state=spotState(sp); g.strokeStyle=state.color; g.lineWidth=3; g.strokeRect(sp.x*S3-8,sp.y*S3-8,16,16); g.fillStyle=state.color; g.font="12px Segoe UI"; g.fillText("#"+sp.n,sp.x*S3+10,sp.y*S3+12); }
   for (const p of POINTS.filter(p => p.world === world)) {
     if (iconOk("mini_map_ui_portal")) g.drawImage(ICONS.mini_map_ui_portal, p.x * S3 - 9, p.y * S3 - 9, 18, 18);

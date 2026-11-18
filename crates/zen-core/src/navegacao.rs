@@ -269,3 +269,148 @@ mod tests {
         assert!((c.covered(100, 60, &cells) - 1.0 / 3.0).abs() < 1e-9);
     }
 }
+
+// ---------------------------------------------------------------- histórico de goldens (18/11)
+
+/// Um golden visto na memória (dado real; nada é inventado).
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Sighting {
+    pub name: String,
+    pub class: u16,
+    pub world: u8,
+    pub x: i32,
+    pub y: i32,
+    pub at: u64,
+    pub by: String,
+    /// Invasão: hora cheia em que começou (unix), para contar aparições por invasão.
+    pub invasao: u64,
+}
+
+/// Região de aparição: avistamentos a até `raio` tiles uns dos outros, agrupados. O centro é a
+/// média das posições vistas (não é ponto de nascimento fixo).
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Region {
+    pub x: i32,
+    pub y: i32,
+    pub count: u32,
+    pub invasoes: u32,
+    pub last_at: u64,
+}
+
+pub fn regions(hist: &[Sighting], world: u8, raio: i32) -> Vec<Region> {
+    let mut groups: Vec<Vec<&Sighting>> = Vec::new();
+    for s in hist.iter().filter(|s| s.world == world) {
+        match groups.iter_mut().find(|g| g.iter().any(|o| (o.x - s.x).abs().max((o.y - s.y).abs()) <= raio)) {
+            Some(g) => g.push(s),
+            None => groups.push(vec![s]),
+        }
+    }
+    groups
+        .into_iter()
+        .map(|g| {
+            let n = g.len() as i32;
+            let mut inv: Vec<u64> = g.iter().map(|s| s.invasao).collect();
+            inv.sort();
+            inv.dedup();
+            Region {
+                x: g.iter().map(|s| s.x).sum::<i32>() / n,
+                y: g.iter().map(|s| s.y).sum::<i32>() / n,
+                count: n as u32,
+                invasoes: inv.len() as u32,
+                last_at: g.iter().map(|s| s.at).max().unwrap_or(0),
+            }
+        })
+        .collect()
+}
+
+/// Peso do histórico perto de um ponto: soma das regiões a até `alcance` tiles, cada uma valendo
+/// as invasões em que apareceu (+1 se a última foi nas últimas 24 h). 0 = sem histórico.
+pub fn history_weight(regs: &[Region], p: (i32, i32), alcance: i32, now: u64) -> f64 {
+    regs.iter()
+        .filter(|r| (r.x - p.0).abs().max((r.y - p.1).abs()) <= alcance)
+        .map(|r| r.invasoes as f64 + if now.saturating_sub(r.last_at) < 86_400 { 1.0 } else { 0.0 })
+        .sum()
+}
+
+impl Coverage {
+    /// Próximo alvo pela melhor relação oportunidade / tempo de caminhada:
+    /// valor = (nunca vista nesta invasão: 1,0; vista há `idade`: até 0,7 conforme passa
+    /// `revisita_s`) + `peso_hist` × peso do histórico; dividido por (passos + 20).
+    /// Falhas recentes ficam de fora.
+    #[allow(clippy::too_many_arguments)]
+    pub fn next_target_scored(
+        &self,
+        now: u64,
+        fail_ttl: u64,
+        revisita_s: u64,
+        peso_hist: f64,
+        cells: &[((i32, i32), (i32, i32))],
+        reach: &dyn Fn((i32, i32)) -> Option<u32>,
+        hist: &dyn Fn((i32, i32)) -> f64,
+    ) -> Option<(i32, i32)> {
+        let mut best: Option<(f64, (i32, i32))> = None;
+        for &(k, tile) in cells {
+            if self.failed.get(&k).is_some_and(|t| now.saturating_sub(*t) < fail_ttl) {
+                continue;
+            }
+            let Some(d) = reach(tile) else { continue };
+            if d == 0 {
+                continue;
+            }
+            let novo = match self.seen.get(&k) {
+                None => 1.0,
+                Some(t) => 0.7 * (now.saturating_sub(*t) as f64 / revisita_s.max(1) as f64).min(1.0),
+            };
+            let h = hist(self.center(k));
+            // Histórico só pesa se a célula ainda não foi vista há pouco (não fica parado nela).
+            let h = if novo > 0.05 { h } else { 0.0 };
+            let v = (novo + peso_hist * h) / (d as f64 + 20.0);
+            if best.map_or(true, |(b, _)| v > b) {
+                best = Some((v, tile));
+            }
+        }
+        best.filter(|(v, _)| *v > 0.0).map(|(_, t)| t)
+    }
+
+    /// Células vistas (chave, quando), para o painel.
+    pub fn seen_cells(&self) -> Vec<((i32, i32), u64)> {
+        self.seen.iter().map(|(k, t)| (*k, *t)).collect()
+    }
+}
+
+#[cfg(test)]
+mod golden_hist_tests {
+    use super::*;
+    fn s(x: i32, y: i32, inv: u64) -> Sighting {
+        Sighting { name: "Golden Budge Dragon".into(), class: 43, world: 1, x, y, at: inv + 600, by: "x9901".into(), invasao: inv }
+    }
+    #[test]
+    fn agrupa_avistamentos_proximos() {
+        let h = vec![s(200, 131, 1000), s(195, 136, 1000), s(100, 100, 2000)];
+        let r = regions(&h, 1, 10);
+        assert_eq!(r.len(), 2);
+        assert_eq!((r[0].x, r[0].y, r[0].count, r[0].invasoes), (197, 133, 2, 1));
+        assert!(history_weight(&r, (190, 130), 16, 1700) > 1.0);
+        assert_eq!(history_weight(&r, (40, 40), 16, 1700), 0.0);
+    }
+    #[test]
+    fn historico_puxa_mas_distancia_pesa() {
+        let c = Coverage::new(16, 12);
+        let cells: Vec<_> = [(2, 2), (12, 8)].iter().map(|&k| (k, c.center(k))).collect();
+        // célula (12,8) tem histórico; (2,2) está mais perto
+        let reach = |p: (i32, i32)| Some((p.0 / 2) as u32);
+        let hist = |p: (i32, i32)| if p.0 > 150 { 3.0 } else { 0.0 };
+        assert_eq!(c.next_target_scored(0, 60, 300, 1.0, &cells, &reach, &hist), Some(c.center((12, 8))), "histórico compensa a distância");
+        assert_eq!(c.next_target_scored(0, 60, 300, 0.0, &cells, &reach, &|_| 0.0), Some(c.center((2, 2))), "sem histórico: o mais perto");
+    }
+    #[test]
+    fn vista_agora_nao_atrai_mesmo_com_historico() {
+        let mut c = Coverage::new(16, 12);
+        let cells: Vec<_> = [(12, 8), (2, 2)].iter().map(|&k| (k, c.center(k))).collect();
+        c.mark(c.center((12, 8)), 100);
+        let t = c.next_target_scored(110, 60, 300, 5.0, &cells, &|_| Some(10), &|p| if p.0 > 150 { 3.0 } else { 0.0 });
+        assert_eq!(t, Some(c.center((2, 2))));
+    }
+}

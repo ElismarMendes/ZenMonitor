@@ -164,6 +164,7 @@ fn router(app: Shared) -> Router {
         // Painel antigo descontinuado (dono, 12/11): "/" abre o painel novo.
         .route("/", get(|| async { Html(V4_HTML) }))
         .route("/api/panels", get(api_panels))
+        .route("/api/golden", get(api_golden))
         .route("/v4", get(|| async { Html(V4_HTML) }))
         .route("/ws/agent", get(ws_agent))
         .route("/ws/pair", get(ws_pair))
@@ -1095,6 +1096,14 @@ async fn api_death_png(State(app): State<Shared>, Path(id): Path<i64>) -> Respon
 }
 
 // ---------------------------------------------------------------- tarefas
+
+/// Estado da patrulha Golden (arquivo escrito pela patrulha ao lado da central). Só leitura.
+async fn api_golden() -> Response {
+    match std::fs::read_to_string(config::CentralConfig::dir().join("golden_patrulha.json")) {
+        Ok(t) => ([("content-type", "application/json")], t).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "sem patrulha").into_response(),
+    }
+}
 
 /// A cada 15 s: ocupação dos spots do catálogo que algum char nosso (de qualquer PC) está vendo.
 /// Vai para os agentes no diretório: a busca pula spot visto ocupado há pouco sem andar até lá,

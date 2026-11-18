@@ -908,6 +908,19 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             let mut historico = std::fs::OpenOptions::new().create(true).append(true).open("goldens_historico.csv").ok();
+            // Histórico persistente (JSON) usado para priorizar regiões; só dados vistos na memória.
+            let hist_path = std::path::PathBuf::from(std::env::var("ZEN_GOLDEN_HIST").unwrap_or_else(|_| r"C:\ZenMonitorNovo\target\release\goldens_historico.json".into()));
+            let mut hist: Vec<zen_core::navegacao::Sighting> = std::fs::read_to_string(&hist_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            let painel_path = hist_path.with_file_name("golden_patrulha.json");
+            let inicio_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let invasao = inicio_unix - inicio_unix % 3600;
+            let peso_hist: f64 = std::env::var("ZEN_GOLDEN_PESO_HIST").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+            let revisita_s: u64 = std::env::var("ZEN_GOLDEN_REVISITA_S").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
+            let mut alcance_visto = 0i32;
+            let mut leituras_ok = 0u32;
+            let mut leituras_falhas = 0u32;
+            let mut confirmados: Vec<(String, i32, i32, u64)> = Vec::new();
+            log(&mut out, format!("histórico: {} avistamentos, {} regiões em Lorencia", hist.len(), zen_core::navegacao::regions(&hist, 1, 10).len()));
             if let Some(p) = posto {
                 anel = vec![p];
                 log(&mut out, format!("modo posto em {p:?}"));
@@ -929,7 +942,27 @@ fn main() -> anyhow::Result<()> {
                     log(&mut out, format!("não está em Lorencia ({:?}); parei", nav::observe_named(w.hwnd).0));
                     break;
                 }
-                let objs = ler(pos);
+                let lido = objects::nearby(w.pid, &name, pos);
+                let agora_s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                match &lido {
+                    Some(v) => {
+                        leituras_ok += 1;
+                        // Região só conta como examinada quando a leitura da memória funcionou aqui.
+                        cob.mark(pos, agora_s);
+                        if let Some(m) = v.iter().map(|o| cheb((o.x, o.y), pos)).max() { alcance_visto = alcance_visto.max(m); }
+                    }
+                    None => leituras_falhas += 1,
+                }
+                // Estado para o painel (Mapas → Lorencia).
+                {
+                    let regs = zen_core::navegacao::regions(&hist, 1, 10);
+                    let cel: Vec<_> = cob.seen_cells().into_iter().map(|((kx, ky), t)| serde_json::json!({"x": kx * 16, "y": ky * 16, "t": t})).collect();
+                    let st = serde_json::json!({"char": name, "at": agora_s, "inicio": inicio_unix, "pos": [pos.0, pos.1], "celula": 16,
+                        "vistas": cel, "regioes": regs, "confirmados": confirmados.iter().map(|(n, x, y, t)| serde_json::json!({"name": n, "x": x, "y": y, "at": t})).collect::<Vec<_>>(),
+                        "cobertura": cob.covered(agora_s, revisita_s.max(600), &cells), "alcance_visto": alcance_visto});
+                    let _ = std::fs::write(&painel_path, st.to_string());
+                }
+                let objs = lido.unwrap_or_default();
                 if let Some(b) = objs.iter().find(|o| zen_core::objects::is_golden_boss(o) && cheb((o.x, o.y), pos) <= 12) {
                     log(&mut out, format!("CHEFE {} classe {} em ({}, {}): fugindo para a safe e parando", b.name, b.class, b.x, b.y));
                     let _ = nav::set_helper(w.hwnd, false);
@@ -940,6 +973,15 @@ fn main() -> anyhow::Result<()> {
                 gs.sort_by_key(|o| cheb((o.x, o.y), pos));
                 if let Some(g) = gs.first().cloned() {
                     *vistos.entry(format!("{} classe {}", g.name, g.class)).or_default() += 1;
+                    {
+                        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                        // Um registro por golden por minuto (não um por leitura).
+                        if !hist.iter().any(|h| h.class == g.class && ts.saturating_sub(h.at) < 60 && cheb((h.x, h.y), (g.x, g.y)) <= 6) {
+                            hist.push(zen_core::navegacao::Sighting { name: g.name.clone(), class: g.class, world: 1, x: g.x, y: g.y, at: ts, by: name.clone(), invasao });
+                            if let Ok(t) = serde_json::to_string_pretty(&hist) { let _ = std::fs::write(&hist_path, t); }
+                            confirmados.push((g.name.clone(), g.x, g.y, ts));
+                        }
+                    }
                     if let Some(f) = historico.as_mut() {
                         use std::io::Write;
                         let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -1011,10 +1053,11 @@ fn main() -> anyhow::Result<()> {
                 // helper desligado. Trecho que falha marca a célula por 3 min (não repete o
                 // caminho que acabou de falhar).
                 let agora = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                cob.mark(pos, agora());
                 let dist = t.distances_from(&[pos]);
                 let reach = |q: (i32, i32)| { let d = dist[q.1 as usize * 256 + q.0 as usize]; (d != u16::MAX).then_some(d as u32) };
-                let Some(alvo) = cob.next_target(agora(), 180, &cells, &reach) else {
+                let regs = zen_core::navegacao::regions(&hist, 1, 10);
+                let peso = |p: (i32, i32)| zen_core::navegacao::history_weight(&regs, p, 16, agora());
+                let Some(alvo) = cob.next_target_scored(agora(), 180, revisita_s, peso_hist, &cells, &reach, &peso) else {
                     log(&mut out, "patrulha: nenhuma célula alcançável; esperando".into());
                     std::thread::sleep(std::time::Duration::from_secs(3));
                     continue;
@@ -1025,21 +1068,21 @@ fn main() -> anyhow::Result<()> {
                 match nav::walk_close(w.hwnd, &t, alvo, &status) {
                     Ok(p) => {
                         falhas_seguidas = 0;
-                        for q in rota.iter().step_by(6) { cob.mark(*q, agora()); }
-                        cob.mark(p, agora());
+                        let _ = &rota; // a rota planejada NÃO conta como examinada; só as leituras reais
+                        let _ = p;
                         log(&mut out, format!("patrulha: {pos:?} -> {p:?} em {} s; cobertura {:.0}%", t_trecho.elapsed().as_secs(), 100.0 * cob.covered(agora(), 900, &cells)));
                     }
                     Err(e) => {
                         falhas_seguidas += 1;
                         cob.mark_failed(alvo, agora());
-                        if let Some(p) = nav::position(w.hwnd) { cob.mark(p, agora()); }
+
                         log(&mut out, format!("patrulha: {alvo:?} falhou em {} s: {e}", t_trecho.elapsed().as_secs()));
                         std::thread::sleep(std::time::Duration::from_secs(if falhas_seguidas >= 3 { 5 } else { 1 }));
                     }
                 }
             }
             let _ = nav::set_helper(w.hwnd, false);
-            log(&mut out, format!("fim. goldens vistos: {vistos:?}"));
+            log(&mut out, format!("fim. goldens vistos: {vistos:?}; alcance máximo visto na memória: {alcance_visto} tiles; leituras ok {leituras_ok}, falhas {leituras_falhas}; histórico agora com {} avistamentos", hist.len()));
         }
         "nome-pos" => {
             // SÓ LEITURA. Para cada cópia do nome do char na memória, procura a posição atual dele
