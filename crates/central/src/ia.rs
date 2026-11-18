@@ -9,8 +9,11 @@
 //! - Desligada por padrão (`[ia] ligada = false` no central.toml).
 //! - Cadeia de provedores: tenta o 1º; erro, limite (429) ou demora -> o próximo. Todos falharam
 //!   = nada além do aviso normal, que já foi enviado antes.
-//! - As chaves ficam no central.toml (fora do git e do pacote dos agentes) e nunca vão para log
-//!   nem para o painel.
+//! - As chaves ficam no `.env` da pasta da central (ou no central.toml); os dois estão fora do
+//!   git e do pacote dos agentes, e as chaves nunca vão para log nem para o painel.
+//!   `.env` (vale mais que o central.toml): ZEN_IA_GROQ_KEY, ZEN_IA_GEMINI_KEY, ZEN_IA_GROK_KEY,
+//!   ZEN_IA_OPENROUTER_KEY e ZEN_IA_LIGADA=1. Também aceita GROQ_API_KEY, GEMINI_API_KEY,
+//!   XAI_API_KEY e OPENROUTER_API_KEY.
 //! - O central.toml em disco manda nesta seção: dá para colar as chaves com a central rodando.
 
 use crate::config::CentralConfig;
@@ -66,8 +69,41 @@ impl Default for IaConfig {
             provedores: vec![
                 p("groq", "https://api.groq.com/openai/v1/chat/completions", "openai/gpt-oss-120b", 200),
                 p("gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "gemini-2.5-flash", 20),
+                p("grok", GROK_URL, GROK_MODELO, 50),
                 p("openrouter", "https://openrouter.ai/api/v1/chat/completions", "openrouter/free", 40),
             ],
+        }
+    }
+}
+
+/// xAI (Grok): endpoint compatível com o da OpenAI (docs.x.ai, conferido em 18/11/2026).
+const GROK_URL: &str = "https://api.x.ai/v1/chat/completions";
+const GROK_MODELO: &str = "grok-4.7";
+
+/// Variáveis do `.env` com a chave de cada provedor (a primeira que existir vale).
+const CHAVES_ENV: [(&str, [&str; 2]); 4] = [
+    ("groq", ["ZEN_IA_GROQ_KEY", "GROQ_API_KEY"]),
+    ("gemini", ["ZEN_IA_GEMINI_KEY", "GEMINI_API_KEY"]),
+    ("grok", ["ZEN_IA_GROK_KEY", "XAI_API_KEY"]),
+    ("openrouter", ["ZEN_IA_OPENROUTER_KEY", "OPENROUTER_API_KEY"]),
+];
+
+/// Aplica o `.env` por cima da configuração: chaves e "ligada". Provedor com chave no `.env`
+/// que não está na lista do central.toml entra com os valores padrão.
+fn aplicar_env(cfg: &mut IaConfig, env: &dyn Fn(&str) -> Option<String>) {
+    if let Some(v) = env("ZEN_IA_LIGADA").and_then(|v| zen_core::envfile::parse_bool(&v)) {
+        cfg.ligada = v;
+    }
+    for (nome, vars) in CHAVES_ENV {
+        let Some(chave) = vars.iter().find_map(|k| env(k)).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else { continue };
+        match cfg.provedores.iter_mut().find(|p| p.nome.eq_ignore_ascii_case(nome)) {
+            Some(p) => p.chave = chave,
+            None => {
+                if let Some(mut p) = IaConfig::default().provedores.into_iter().find(|p| p.nome == nome) {
+                    p.chave = chave;
+                    cfg.provedores.push(p);
+                }
+            }
         }
     }
 }
@@ -80,8 +116,14 @@ struct SoIa {
 
 /// Lê a seção `[ia]` do arquivo em disco (vale a última edição, sem reiniciar a central).
 pub fn config_em_disco() -> Option<IaConfig> {
-    let txt = std::fs::read_to_string(CentralConfig::dir().join("central.toml")).ok()?;
-    toml::from_str::<SoIa>(&txt).ok()?.ia
+    let txt = std::fs::read_to_string(CentralConfig::dir().join("central.toml")).unwrap_or_default();
+    let mut cfg = toml::from_str::<SoIa>(&txt).ok().and_then(|d| d.ia).unwrap_or_default();
+    // O .env é relido a cada consulta: dá para colar a chave com a central rodando.
+    let arquivo: HashMap<String, String> = std::fs::read_to_string(CentralConfig::dir().join(".env"))
+        .map(|t| zen_core::envfile::parse(&t).into_iter().collect())
+        .unwrap_or_default();
+    aplicar_env(&mut cfg, &|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()).or_else(|| arquivo.get(k).cloned()));
+    Some(cfg)
 }
 
 // ---------------------------------------------------------------- contagem e repetição
@@ -413,6 +455,25 @@ mod testes {
         assert!(!c.ligada);
         assert!(c.provedores.iter().all(|p| p.chave.is_empty()));
         assert_eq!(c.provedores[0].nome, "groq");
+    }
+
+    #[test]
+    fn env_poe_chaves_liga_e_inclui_grok() {
+        // central.toml antigo: só groq e gemini na lista.
+        let mut c = IaConfig { provedores: IaConfig::default().provedores.into_iter().filter(|p| p.nome != "grok").collect(), ..IaConfig::default() };
+        let env = |k: &str| match k {
+            "ZEN_IA_LIGADA" => Some("1".to_string()),
+            "GEMINI_API_KEY" => Some("g-chave".to_string()),
+            "ZEN_IA_GROK_KEY" => Some(" x-chave ".to_string()),
+            "ZEN_IA_GROQ_KEY" => Some("".to_string()),
+            _ => None,
+        };
+        aplicar_env(&mut c, &env);
+        assert!(c.ligada);
+        assert_eq!(c.provedores.iter().find(|p| p.nome == "gemini").unwrap().chave, "g-chave");
+        let g = c.provedores.iter().find(|p| p.nome == "grok").expect("grok entra pela chave do .env");
+        assert_eq!((g.chave.as_str(), g.url.as_str()), ("x-chave", GROK_URL));
+        assert!(c.provedores.iter().find(|p| p.nome == "groq").unwrap().chave.is_empty(), "variável vazia não vale");
     }
 
     #[test]
