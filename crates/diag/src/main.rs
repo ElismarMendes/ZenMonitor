@@ -819,9 +819,9 @@ fn main() -> anyhow::Result<()> {
             }
         }
         "caca-golden" => {
-            // Goldens etapa 3/4 (TESTE): patrulha em volta da cidade de Lorencia; viu golden na
-            // memória -> helper off, anda até ele, helper on (o helper ataca). Só para o char que
-            // já está em Lorencia com "foi até" do painel (a automação não mexe nele).
+            // Goldens etapa 3/4 (TESTE). Regra do dono (18/11 06:46): andar SEMPRE com o helper
+            // desligado; chegar colado no golden e só então ligar (range 6 do helper; o golden é
+            // atraído quando o char ataca). O helper pega a caixa sozinho.
             // Uso: zen-diag caca-golden <nome> <segundos> [raio]
             use zen_agent::win::{nav, objects};
             let name = args.get(1).ok_or_else(|| anyhow::anyhow!("falta o nome"))?.clone();
@@ -838,29 +838,42 @@ fn main() -> anyhow::Result<()> {
                 out.push_str(&l);
                 let _ = std::fs::write("resultado_caca-golden.txt", out.as_bytes());
             };
-            // Anel de patrulha: 12 direções em volta do centro da cidade, tile andável fora da safe.
+            let cheb = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
+            // Anel: 16 direções em volta da cidade, só pontos andáveis fora da safe e ligados ao
+            // anterior por linha reta livre (sem cerca no meio). Pontos intermediários a cada ~10
+            // tiles: trecho curto falha rápido e a memória é lida entre um trecho e outro.
             let centro = (135i32, 128i32);
-            let mut anel: Vec<(i32, i32)> = Vec::new();
-            for k in 0..12 {
-                let a = k as f64 * std::f64::consts::TAU / 12.0;
-                let mut achou = None;
-                for dr in [0, 5, -5, 10, -10, 15] {
+            let mut base: Vec<(i32, i32)> = Vec::new();
+            for k in 0..16 {
+                let a = k as f64 * std::f64::consts::TAU / 16.0;
+                for dr in [0, 4, -4, 8, -8, 12] {
                     let r = (raio + dr) as f64;
                     let p = (centro.0 + (r * a.cos()).round() as i32, centro.1 + (r * a.sin()).round() as i32);
                     if (1..255).contains(&p.0) && (1..255).contains(&p.1) && t.walkable(p.0, p.1) && !t.is_safezone(p.0, p.1) {
-                        achou = Some(p);
+                        base.push(p);
                         break;
                     }
                 }
-                if let Some(p) = achou {
-                    anel.push(p);
+            }
+            let mut anel: Vec<(i32, i32)> = Vec::new();
+            for (i, &p) in base.iter().enumerate() {
+                let q = base[(i + 1) % base.len()];
+                anel.push(p);
+                if t.segment_clear(p, q) {
+                    let n = (cheb(p, q) / 10).max(1);
+                    for k in 1..n {
+                        anel.push((p.0 + (q.0 - p.0) * k / n, p.1 + (q.1 - p.1) * k / n));
+                    }
                 }
             }
             log(&mut out, format!("anel de patrulha ({} pontos): {anel:?}", anel.len()));
             let status = |_m: String| {};
-            let mut i = 0usize;
+            let ler = |pos: (i32, i32)| objects::nearby(w.pid, &name, pos).unwrap_or_default();
+            // Começa no ponto do anel mais perto do char.
+            let mut i = nav::position(w.hwnd).and_then(|p| (0..anel.len()).min_by_key(|&k| cheb(anel[k], p))).unwrap_or(0);
             let mut vistos: std::collections::BTreeMap<String, u32> = Default::default();
-            while t0.elapsed().as_secs() < secs {
+            let mut falhas_seguidas = 0;
+            'caca: while t0.elapsed().as_secs() < secs {
                 let Some(pos) = nav::position(w.hwnd) else {
                     log(&mut out, "sem posição na tela".into());
                     std::thread::sleep(std::time::Duration::from_secs(2));
@@ -870,48 +883,82 @@ fn main() -> anyhow::Result<()> {
                     log(&mut out, format!("não está em Lorencia ({:?}); parei", nav::observe_named(w.hwnd).0));
                     break;
                 }
-                let objs = objects::nearby(w.pid, &name, pos).unwrap_or_default();
-                // Chefe dourado (Great Golden Dragon) a 12 tiles ou menos: volta para a safe e para.
-                if let Some(b) = objs.iter().find(|o| zen_core::objects::is_golden_boss(o) && (o.x - pos.0).abs().max((o.y - pos.1).abs()) <= 12) {
+                let objs = ler(pos);
+                if let Some(b) = objs.iter().find(|o| zen_core::objects::is_golden_boss(o) && cheb((o.x, o.y), pos) <= 12) {
                     log(&mut out, format!("CHEFE {} classe {} em ({}, {}): fugindo para a safe e parando", b.name, b.class, b.x, b.y));
                     let _ = nav::set_helper(w.hwnd, false);
                     let _ = nav::walk(w.hwnd, &t, (123, 129), &status);
                     break;
                 }
-                let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o)).collect();
-                gs.sort_by_key(|o| (o.x - pos.0).abs().max((o.y - pos.1).abs()));
-                if let Some(g) = gs.first() {
-                    let d = (g.x - pos.0).abs().max((g.y - pos.1).abs());
+                let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o)).cloned().collect();
+                gs.sort_by_key(|o| cheb((o.x, o.y), pos));
+                if let Some(g) = gs.first().cloned() {
                     *vistos.entry(format!("{} classe {}", g.name, g.class)).or_default() += 1;
-                    log(&mut out, format!("GOLDEN {} classe {} em ({}, {}), char em {pos:?}, dist {d}", g.name, g.class, g.x, g.y));
-                    if d > 2 {
+                    log(&mut out, format!("GOLDEN {} classe {} em ({}, {}), char em {pos:?}, dist {}", g.name, g.class, g.x, g.y, cheb((g.x, g.y), pos)));
+                    // Chegar colado (até 2 tiles) com o helper DESLIGADO; até 3 tentativas porque ele se mexe.
+                    let mut alvo = (g.x, g.y);
+                    let mut perto = cheb(alvo, pos) <= 2;
+                    for tentativa in 0..3 {
+                        if perto { break; }
                         let _ = nav::set_helper(w.hwnd, false);
-                        match nav::walk(w.hwnd, &t, (g.x, g.y), &status) {
-                            Ok(p) => log(&mut out, format!("  andei até {p:?}")),
-                            Err(e) => log(&mut out, format!("  caminhada: {e}")),
+                        let r = nav::walk(w.hwnd, &t, alvo, &status);
+                        let p = nav::position(w.hwnd).unwrap_or(pos);
+                        let agora = ler(p);
+                        let Some(g2) = agora.iter().filter(|o| zen_core::objects::is_golden(o)).min_by_key(|o| cheb((o.x, o.y), p)) else {
+                            log(&mut out, format!("  golden sumiu durante a aproximação ({r:?})"));
+                            continue 'caca;
+                        };
+                        alvo = (g2.x, g2.y);
+                        perto = cheb(alvo, p) <= 2;
+                        log(&mut out, format!("  aproximação {}: char em {p:?}, golden em {alvo:?}, dist {}", tentativa + 1, cheb(alvo, p)));
+                    }
+                    // Colado: liga o helper e acompanha até o golden sumir (morto ou foi embora).
+                    let _ = nav::set_helper(w.hwnd, true);
+                    log(&mut out, "  helper LIGADO perto do golden".into());
+                    let t_luta = std::time::Instant::now();
+                    while t_luta.elapsed().as_secs() < 120 {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        let Some(p) = nav::position(w.hwnd) else { continue };
+                        let agora = ler(p);
+                        if agora.iter().any(|o| zen_core::objects::is_golden_boss(o) && cheb((o.x, o.y), p) <= 12) {
+                            continue 'caca; // o topo do laço foge
+                        }
+                        match agora.iter().filter(|o| zen_core::objects::is_golden(o)).min_by_key(|o| cheb((o.x, o.y), p)) {
+                            None => {
+                                log(&mut out, format!("  golden sumiu da tela após {} s (morto ou fugiu); helper fica ligado 6 s para pegar a caixa", t_luta.elapsed().as_secs()));
+                                std::thread::sleep(std::time::Duration::from_secs(6));
+                                continue 'caca;
+                            }
+                            Some(g3) if cheb((g3.x, g3.y), p) > 6 => {
+                                log(&mut out, format!("  golden se afastou para ({}, {}) (dist {}): reaproximando", g3.x, g3.y, cheb((g3.x, g3.y), p)));
+                                continue 'caca;
+                            }
+                            _ => {}
                         }
                     }
-                    let _ = nav::set_helper(w.hwnd, true);
-                    std::thread::sleep(std::time::Duration::from_millis(2500));
+                    log(&mut out, "  2 min lutando sem resolver: volta à patrulha".into());
                     continue;
                 }
                 if anel.is_empty() {
                     std::thread::sleep(std::time::Duration::from_secs(2));
                     continue;
                 }
-                // Sem golden à vista: próximo ponto do anel (helper desligado andando, ligado parado
-                // uns segundos para não ficar "passeando" sem atacar nada).
+                // Sem golden: próximo ponto do anel, helper desligado. Trecho que falhar é pulado.
                 let alvo = anel[i % anel.len()];
                 i += 1;
+                if cheb(alvo, pos) <= 2 { continue; }
                 let _ = nav::set_helper(w.hwnd, false);
+                let t_trecho = std::time::Instant::now();
                 match nav::walk(w.hwnd, &t, alvo, &status) {
-                    Ok(p) => log(&mut out, format!("patrulha: cheguei em {p:?}")),
-                    Err(e) => log(&mut out, format!("patrulha: {alvo:?} falhou: {e}")),
+                    Ok(p) => { falhas_seguidas = 0; log(&mut out, format!("patrulha: {p:?} em {} s", t_trecho.elapsed().as_secs())); }
+                    Err(e) => {
+                        falhas_seguidas += 1;
+                        log(&mut out, format!("patrulha: {alvo:?} falhou em {} s: {e}", t_trecho.elapsed().as_secs()));
+                        if falhas_seguidas >= 3 { i += 2; falhas_seguidas = 0; }
+                    }
                 }
-                let _ = nav::set_helper(w.hwnd, true);
-                std::thread::sleep(std::time::Duration::from_secs(4));
             }
-            let _ = nav::set_helper(w.hwnd, true);
+            let _ = nav::set_helper(w.hwnd, false);
             log(&mut out, format!("fim. goldens vistos: {vistos:?}"));
         }
         "nome-pos" => {
