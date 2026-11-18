@@ -818,6 +818,95 @@ fn main() -> anyhow::Result<()> {
                 writeln!(out, "{n} classe {c}: {k}")?;
             }
         }
+        "caca-golden" => {
+            // Goldens etapa 3/4 (TESTE): patrulha em volta da cidade de Lorencia; viu golden na
+            // memória -> helper off, anda até ele, helper on (o helper ataca). Só para o char que
+            // já está em Lorencia com "foi até" do painel (a automação não mexe nele).
+            // Uso: zen-diag caca-golden <nome> <segundos> [raio]
+            use zen_agent::win::{nav, objects};
+            let name = args.get(1).ok_or_else(|| anyhow::anyhow!("falta o nome"))?.clone();
+            let secs: u64 = args.get(2).and_then(|a| a.parse().ok()).unwrap_or(1200);
+            let raio: i32 = args.get(3).and_then(|a| a.parse().ok()).unwrap_or(40);
+            let w = zen_agent::win::windows_list::find_by_class("The Classic MU Season 2")
+                .into_iter()
+                .find(|w| zen_core::title::parse(&w.title).name.is_some_and(|n| n.eq_ignore_ascii_case(&name)))
+                .ok_or_else(|| anyhow::anyhow!("janela do char {name} não encontrada"))?;
+            let t = nav::world_terrain_of(w.hwnd, 1).map_err(|e| anyhow::anyhow!(e))?;
+            let t0 = std::time::Instant::now();
+            let log = |out: &mut String, m: String| {
+                let l = format!("{:>5}s {m}\n", t0.elapsed().as_secs());
+                out.push_str(&l);
+                let _ = std::fs::write("resultado_caca-golden.txt", out.as_bytes());
+            };
+            // Anel de patrulha: 12 direções em volta do centro da cidade, tile andável fora da safe.
+            let centro = (135i32, 128i32);
+            let mut anel: Vec<(i32, i32)> = Vec::new();
+            for k in 0..12 {
+                let a = k as f64 * std::f64::consts::TAU / 12.0;
+                let mut achou = None;
+                for dr in [0, 5, -5, 10, -10, 15] {
+                    let r = (raio + dr) as f64;
+                    let p = (centro.0 + (r * a.cos()).round() as i32, centro.1 + (r * a.sin()).round() as i32);
+                    if (1..255).contains(&p.0) && (1..255).contains(&p.1) && t.walkable(p.0, p.1) && !t.is_safezone(p.0, p.1) {
+                        achou = Some(p);
+                        break;
+                    }
+                }
+                if let Some(p) = achou {
+                    anel.push(p);
+                }
+            }
+            log(&mut out, format!("anel de patrulha ({} pontos): {anel:?}", anel.len()));
+            let status = |_m: String| {};
+            let mut i = 0usize;
+            let mut vistos: std::collections::BTreeMap<String, u32> = Default::default();
+            while t0.elapsed().as_secs() < secs {
+                let Some(pos) = nav::position(w.hwnd) else {
+                    log(&mut out, "sem posição na tela".into());
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    continue;
+                };
+                if nav::observe_named(w.hwnd).0 != Some("Lorencia") {
+                    log(&mut out, format!("não está em Lorencia ({:?}); parei", nav::observe_named(w.hwnd).0));
+                    break;
+                }
+                let objs = objects::nearby(w.pid, &name, pos).unwrap_or_default();
+                let mut gs: Vec<_> = objs.iter().filter(|o| zen_core::objects::is_golden(o)).collect();
+                gs.sort_by_key(|o| (o.x - pos.0).abs().max((o.y - pos.1).abs()));
+                if let Some(g) = gs.first() {
+                    let d = (g.x - pos.0).abs().max((g.y - pos.1).abs());
+                    *vistos.entry(format!("{} classe {}", g.name, g.class)).or_default() += 1;
+                    log(&mut out, format!("GOLDEN {} classe {} em ({}, {}), char em {pos:?}, dist {d}", g.name, g.class, g.x, g.y));
+                    if d > 2 {
+                        let _ = nav::set_helper(w.hwnd, false);
+                        match nav::walk(w.hwnd, &t, (g.x, g.y), &status) {
+                            Ok(p) => log(&mut out, format!("  andei até {p:?}")),
+                            Err(e) => log(&mut out, format!("  caminhada: {e}")),
+                        }
+                    }
+                    let _ = nav::set_helper(w.hwnd, true);
+                    std::thread::sleep(std::time::Duration::from_millis(2500));
+                    continue;
+                }
+                if anel.is_empty() {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    continue;
+                }
+                // Sem golden à vista: próximo ponto do anel (helper desligado andando, ligado parado
+                // uns segundos para não ficar "passeando" sem atacar nada).
+                let alvo = anel[i % anel.len()];
+                i += 1;
+                let _ = nav::set_helper(w.hwnd, false);
+                match nav::walk(w.hwnd, &t, alvo, &status) {
+                    Ok(p) => log(&mut out, format!("patrulha: cheguei em {p:?}")),
+                    Err(e) => log(&mut out, format!("patrulha: {alvo:?} falhou: {e}")),
+                }
+                let _ = nav::set_helper(w.hwnd, true);
+                std::thread::sleep(std::time::Duration::from_secs(4));
+            }
+            let _ = nav::set_helper(w.hwnd, true);
+            log(&mut out, format!("fim. goldens vistos: {vistos:?}"));
+        }
         "nome-pos" => {
             // SÓ LEITURA. Para cada cópia do nome do char na memória, procura a posição atual dele
             // (f32 tile*100, u16 ou u8) em até 0x1000 bytes antes/depois. Mostra o deslocamento
