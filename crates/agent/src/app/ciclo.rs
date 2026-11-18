@@ -410,6 +410,19 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
             if let Some(m) = rec.machines.get_mut(&name) {
                 m.finished(now(), ok, &rec_cfg);
             }
+            if ok {
+                rec.full_until.remove(&name);
+            } else if matches!(&r, Err(e) if e.starts_with("nenhum spot livre confirmado")) {
+                // Tudo lotado: o char já foi para a safe (spots.rs). Nova volta pelo catálogo só
+                // daqui a ~1 h, com horário sorteado para não parecer robô.
+                let at = now() + random_between(3000, 4200);
+                rec.full_until.insert(name.clone(), at);
+                let m = format!("{name}: todos os spots lotados; esperando na safe, nova busca às {}", chrono_hhmm(at));
+                tracing::warn!(char = %name, nova_busca = %chrono_hhmm(at), "spots lotados: espera na safe");
+                let _ = out_tx.try_send(AgentMsg::CommandResult { id: 0, ok: false, message: m.clone() });
+                rec.set_status(&name, m);
+                continue;
+            }
             if !ok {
                 if let Some(png) = zen_agent::win::nav::take_error_shot() {
                     let _ = out_tx.try_send(AgentMsg::Screenshot {
@@ -663,6 +676,13 @@ pub(super) fn worker(test_mode: bool) -> anyhow::Result<()> {
                         rec.set_status(&name, h);
                     }
                     continue;
+                }
+                if let Some(&at) = rec.full_until.get(&name) {
+                    if now() < at {
+                        rec.set_status(&name, format!("todos os spots lotados: esperando na safe, nova busca às {}", chrono_hhmm(at)));
+                        continue;
+                    }
+                    rec.full_until.remove(&name);
                 }
                 if manual {
                     // Você pausou com F8: não conta tentativa nem aperta nada.

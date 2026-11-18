@@ -16,6 +16,9 @@ pub(super) struct Recovery {
     pub(super) raven_low: std::collections::HashMap<String, u64>,
     /// Depósito falhou: não tenta de novo antes deste horário.
     pub(super) deposit_block: std::collections::HashMap<String, u64>,
+    /// v5 (dono, 18/11 03:47): todos os spots lotados = espera na safe até esta hora (~1 h, sorteada)
+    /// antes de outra volta pelo catálogo. Antes ele rodava a lista a cada ~6 min, horas a fio.
+    pub(super) full_until: std::collections::HashMap<String, u64>,
     pub(super) deposit_wait_reason: std::collections::HashMap<String, String>,
     /// Chars cuja causa da morte ainda está sendo lida.
     pub(super) pending: std::collections::HashSet<String>,
@@ -65,6 +68,7 @@ impl Recovery {
         Self {
             pending: Default::default(),
             deposit_block: Default::default(),
+            full_until: Default::default(),
             deposit_wait_reason: Default::default(),
             farm_since: Default::default(),
             death_farmed: Default::default(),

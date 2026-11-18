@@ -373,6 +373,15 @@ fn recover_with(
             }
         }
     }
+    // Tudo lotado: não fica parado no spot de outro jogador com o helper desligado (dá na cara).
+    // Vai para a safe do mapa principal pelo M e espera lá (o ciclo agenda a próxima busca).
+    if let Some(d) = nav::Dest::from_world(home.world).filter(|d| d.can_teleport() && *d != nav::Dest::Lorencia) {
+        status(format!("todos os spots lotados: indo esperar na safe da {}", d.name()));
+        match nav::teleport(hwnd, d) {
+            Ok(p) => tracing::info!(char = name, posicao = ?p, "spots lotados: esperando na safe"),
+            Err(e) => tracing::warn!(char = name, erro = %e, "spots lotados: teleporte para a safe falhou"),
+        }
+    }
     Err(format!(
         "nenhum spot livre confirmado; aguardando nova varredura: {}",
         reasons.join("; ")
