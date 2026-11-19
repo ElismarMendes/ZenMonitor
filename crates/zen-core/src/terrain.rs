@@ -12,8 +12,11 @@
 
 pub const SIZE: usize = 256;
 pub const SAFEZONE: u8 = 0x01;
+/// Entidade/personagem no tile (o servidor marca; o cliente usa para colisão).
+pub const CHARACTER: u8 = 0x02;
 pub const NOMOVE: u8 = 0x04;
 pub const NOGROUND: u8 = 0x08;
+pub const WATER: u8 = 0x10;
 
 const KEY: [u8; 16] = [0xD1, 0x73, 0x52, 0xF6, 0xD2, 0x9A, 0xCB, 0x27, 0x3E, 0xAF, 0x59, 0x31, 0x37, 0xB3, 0xE7, 0xA2];
 const BUX: [u8; 3] = [0xFC, 0xCF, 0xAB];
@@ -64,7 +67,8 @@ impl Terrain {
             131076 => 2,
             n => return Err(TerrainError::Size(n)),
         };
-        let d = decrypt(raw);
+        // Terrain.att bruto do servidor: 65540 bytes, cabeçalho [0, mapa, 255, 255] sem cifra.
+        let d = if per_tile == 1 && raw[0] == 0 && raw[2] == 255 && raw[3] == 255 { raw.to_vec() } else { decrypt(raw) };
         let hdr = [d[0], d[1], d[2], d[3]];
         if hdr[0] != 0 || hdr[2] != 255 || hdr[3] != 255 {
             return Err(TerrainError::Header(hdr));
@@ -73,6 +77,19 @@ impl Terrain {
         let t = Self { world: hdr[1], tiles };
         let extra = extra_blocked(t.world);
         Ok(if extra.is_empty() { t } else { t.with_blocked(&extra) })
+    }
+
+    /// Bits de cada tile (índice y * 256 + x).
+    pub fn tiles(&self) -> &[u8] {
+        &self.tiles
+    }
+
+    /// Exporta no formato do servidor (`Terrain.att`): 4 bytes de cabeçalho + 65.536 bytes.
+    pub fn to_server_file(&self) -> Vec<u8> {
+        let mut v = Vec::with_capacity(4 + SIZE * SIZE);
+        v.extend_from_slice(&[0, self.world, 255, 255]);
+        v.extend_from_slice(&self.tiles);
+        v
     }
 
     pub fn attr(&self, x: i32, y: i32) -> Option<u8> {
@@ -145,52 +162,136 @@ impl Terrain {
     }
 
     fn path_with(&self, from: (i32, i32), to: (i32, i32), cut_corners: bool) -> Option<Vec<(i32, i32)>> {
-        use std::cmp::Reverse;
-        use std::collections::BinaryHeap;
+        self.path_opts(from, to, PathOptions { cut_corners, ..Default::default() })
+    }
+
+    /// A* (19/11): heap binária com chave f32, vetores planos (g f32, veio-de i32, fechado u8),
+    /// 8 direções com custo 1 e √2, heurística octile × 1,001 (desempate a favor da linha reta),
+    /// sem cortar quina (a diagonal só passa se os dois vizinhos retos forem piso).
+    /// `prefer_safe`: custo × 0,7 dentro da safe e × 1,3 fora. Inclui o destino, não a origem.
+    pub fn path_opts(&self, from: (i32, i32), to: (i32, i32), o: PathOptions) -> Option<Vec<(i32, i32)>> {
         if !self.walkable(to.0, to.1) || !self.walkable(from.0, from.1) {
             return None;
         }
+        if from == to {
+            return Some(vec![to]);
+        }
+        const N: usize = SIZE * SIZE;
         let idx = |x: i32, y: i32| y as usize * SIZE + x as usize;
+        let s2 = std::f32::consts::SQRT_2;
         let h = |x: i32, y: i32| {
-            let (dx, dy) = ((x - to.0).abs(), (y - to.1).abs());
-            (10 * (dx + dy) - 6 * dx.min(dy)) as u32 // octile: reto 10, diagonal 14
+            let (dx, dy) = ((x - to.0).abs() as f32, (y - to.1).abs() as f32);
+            (dx.max(dy) + (s2 - 1.0) * dx.min(dy)) * 1.001 * if o.prefer_safe { 0.7 } else { 1.0 }
         };
-        let mut g = vec![u32::MAX; SIZE * SIZE];
-        let mut came = vec![u32::MAX; SIZE * SIZE];
-        let mut open = BinaryHeap::new();
-        g[idx(from.0, from.1)] = 0;
-        open.push(Reverse((h(from.0, from.1), 0u32, from.0, from.1)));
-        while let Some(Reverse((_, gc, x, y))) = open.pop() {
-            if (x, y) == to {
-                let mut out = vec![(x, y)];
-                let mut cur = idx(x, y);
-                while came[cur] != u32::MAX && came[cur] as usize != idx(from.0, from.1) {
-                    cur = came[cur] as usize;
-                    out.push(((cur % SIZE) as i32, (cur / SIZE) as i32));
+        let mut g = vec![f32::INFINITY; N];
+        let mut came = vec![-1i32; N];
+        let mut closed = vec![0u8; N];
+        let mut heap = MinHeap::default();
+        let start = idx(from.0, from.1);
+        let goal = idx(to.0, to.1);
+        g[start] = 0.0;
+        heap.push(h(from.0, from.1), start as u32);
+        while let Some(cur) = heap.pop() {
+            let cur = cur as usize;
+            if closed[cur] != 0 {
+                continue;
+            }
+            closed[cur] = 1;
+            if cur == goal {
+                let mut out = Vec::new();
+                let mut c = cur as i32;
+                while c >= 0 && c as usize != start {
+                    out.push(((c as usize % SIZE) as i32, (c as usize / SIZE) as i32));
+                    c = came[c as usize];
                 }
                 out.reverse();
                 return Some(out);
             }
-            if gc > g[idx(x, y)] {
-                continue;
-            }
+            let (x, y) = ((cur % SIZE) as i32, (cur / SIZE) as i32);
             for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
                 let (nx, ny) = (x + dx, y + dy);
-                if !self.walkable(nx, ny) {
+                if !self.walkable(nx, ny) || closed[idx(nx, ny)] != 0 {
                     continue;
                 }
-                if !cut_corners && dx != 0 && dy != 0 && !(self.walkable(x + dx, y) && self.walkable(x, y + dy)) {
+                if !o.cut_corners && dx != 0 && dy != 0 && !(self.walkable(x + dx, y) && self.walkable(x, y + dy)) {
                     continue;
                 }
-                let ng = gc + if dx != 0 && dy != 0 { 14 } else { 10 };
-                if ng < g[idx(nx, ny)] {
-                    g[idx(nx, ny)] = ng;
-                    came[idx(nx, ny)] = idx(x, y) as u32;
-                    open.push(Reverse((ng + h(nx, ny), ng, nx, ny)));
+                let mut step = if dx != 0 && dy != 0 { s2 } else { 1.0 };
+                if o.prefer_safe {
+                    step *= if self.is_safezone(nx, ny) { 0.7 } else { 1.3 };
+                }
+                let ng = g[cur] + step;
+                let ni = idx(nx, ny);
+                if ng < g[ni] {
+                    g[ni] = ng;
+                    came[ni] = cur as i32;
+                    heap.push(ng + h(nx, ny), ni as u32);
                 }
             }
         }
         None
+    }
+
+    /// Rota encadeada: início -> wp1 -> wp2 -> ... -> destino, sem repetir os nós de junção.
+    pub fn path_via(&self, from: (i32, i32), via: &[(i32, i32)], to: (i32, i32), o: PathOptions) -> Option<Vec<(i32, i32)>> {
+        let mut out = Vec::new();
+        let mut cur = from;
+        for &p in via.iter().chain(std::iter::once(&to)) {
+            if p == cur {
+                continue;
+            }
+            out.extend(self.path_opts(cur, p, o)?);
+            cur = p;
+        }
+        Some(out)
+    }
+
+    /// Linha de visão por Bresenham sem cortar quina: todos os tiles da linha são piso e cada
+    /// passo diagonal tem os dois vizinhos retos livres.
+    pub fn los_clear(&self, a: (i32, i32), b: (i32, i32)) -> bool {
+        if !self.walkable(a.0, a.1) {
+            return false;
+        }
+        let (mut x, mut y) = a;
+        let (dx, dy) = ((b.0 - a.0).abs(), -(b.1 - a.1).abs());
+        let (sx, sy) = (if a.0 < b.0 { 1 } else { -1 }, if a.1 < b.1 { 1 } else { -1 });
+        let mut err = dx + dy;
+        while (x, y) != b {
+            let e2 = 2 * err;
+            let (mut nx, mut ny) = (x, y);
+            if e2 >= dy {
+                err += dy;
+                nx += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                ny += sy;
+            }
+            if !self.walkable(nx, ny) || (nx != x && ny != y && !(self.walkable(nx, y) && self.walkable(x, ny))) {
+                return false;
+            }
+            x = nx;
+            y = ny;
+        }
+        true
+    }
+
+    /// Suavização por linha de visão: tira os zigue-zagues, mantendo só os pontos de virada
+    /// necessários (nenhum trecho atravessa parede nem corta quina).
+    pub fn smooth(&self, from: (i32, i32), path: &[(i32, i32)]) -> Vec<(i32, i32)> {
+        let mut out = Vec::new();
+        let mut anchor = from;
+        let mut i = 0;
+        while i < path.len() {
+            let mut j = i;
+            while j + 1 < path.len() && self.los_clear(anchor, path[j + 1]) {
+                j += 1;
+            }
+            out.push(path[j]);
+            anchor = path[j];
+            i = j + 1;
+        }
+        out
     }
 
     /// Pontos de passagem para cliques: o ponto mais distante da rota (até `max_step` tiles
@@ -206,7 +307,8 @@ impl Terrain {
                 if (p.0 - cur.0).abs().max((p.1 - cur.1).abs()) > max_step {
                     break;
                 }
-                if self.line_clear(cur, p) {
+                // 19/11: sem cortar quina (antes `line_clear` deixava o clique atravessar a quina).
+                if self.los_clear(cur, p) {
                     best = j;
                 }
             }
@@ -234,6 +336,60 @@ impl Terrain {
         for k in 1..=n {let p=(a.0+((b.0-a.0) as f64*k as f64/n as f64).round() as i32,a.1+((b.1-a.1) as f64*k as f64/n as f64).round() as i32);
             if !self.walkable(p.0,p.1)||(p.0!=last.0&&p.1!=last.1&&(!self.walkable(p.0,last.1)||!self.walkable(last.0,p.1))){return false;}last=p;}
         true
+    }
+}
+
+/// Opções do A*.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PathOptions {
+    /// Aceita a diagonal entre duas quinas (só para rota de fuga).
+    pub cut_corners: bool,
+    /// Prefere andar pela safe (custo × 0,7 dentro, × 1,3 fora).
+    pub prefer_safe: bool,
+}
+
+/// Heap binária mínima de (chave f32 >= 0, nó). Chaves não negativas comparam igual aos bits.
+#[derive(Default)]
+struct MinHeap {
+    v: Vec<(u32, u32)>,
+}
+
+impl MinHeap {
+    fn push(&mut self, key: f32, node: u32) {
+        self.v.push((key.max(0.0).to_bits(), node));
+        let mut i = self.v.len() - 1;
+        while i > 0 {
+            let p = (i - 1) / 2;
+            if self.v[p].0 <= self.v[i].0 {
+                break;
+            }
+            self.v.swap(p, i);
+            i = p;
+        }
+    }
+    fn pop(&mut self) -> Option<u32> {
+        if self.v.is_empty() {
+            return None;
+        }
+        let top = self.v.swap_remove(0).1;
+        let n = self.v.len();
+        let mut i = 0;
+        loop {
+            let (l, r) = (2 * i + 1, 2 * i + 2);
+            let mut m = i;
+            if l < n && self.v[l].0 < self.v[m].0 {
+                m = l;
+            }
+            if r < n && self.v[r].0 < self.v[m].0 {
+                m = r;
+            }
+            if m == i {
+                break;
+            }
+            self.v.swap(i, m);
+            i = m;
+        }
+        Some(top)
     }
 }
 
@@ -333,4 +489,83 @@ pub fn extra_blocked(world: u8) -> Vec<(i32, i32)> {
         }
     }
     v
+}
+
+#[cfg(test)]
+mod astar_tests {
+    use super::*;
+
+    fn grid(rows: &[&str]) -> Terrain {
+        let mut tiles = vec![NOMOVE; SIZE * SIZE];
+        for (y, r) in rows.iter().enumerate() {
+            for (x, c) in r.chars().enumerate() {
+                tiles[y * SIZE + x] = match c { '.' => 0, 's' => SAFEZONE, _ => NOMOVE };
+            }
+        }
+        Terrain { world: 9, tiles }
+    }
+
+    #[test]
+    fn linha_reta_quando_possivel_e_custo_octile() {
+        let t = grid(&["..........", "..........", ".........."]);
+        let p = t.path((0, 1), (9, 1)).unwrap();
+        assert_eq!(p.len(), 9);
+        assert!(p.iter().all(|&(_, y)| y == 1), "desempate 1,001 favorece a reta: {p:?}");
+    }
+
+    #[test]
+    fn diagonal_so_com_os_dois_vizinhos_retos_livres() {
+        let t = grid(&["..#", "...", "..."]);
+        let p = t.path((1, 1), (2, 0));
+        assert_eq!(p, None, "(2,0) é parede");
+        let t = grid(&[".#.", "...", "..."]);
+        let p = t.path((0, 1), (2, 0)).unwrap();
+        // (0,1)->(1,0) cortaria a quina de (1,0)? (1,0) é parede; não pode ir na diagonal para (1,0)
+        assert!(p.windows(2).all(|w| { let (a, b) = (w[0], w[1]); a.0 == b.0 || a.1 == b.1 || (t.walkable(b.0, a.1) && t.walkable(a.0, b.1)) }));
+    }
+
+    #[test]
+    fn varios_waypoints_sem_repetir_juncao() {
+        let t = grid(&["..........", "..........", ".........."]);
+        let p = t.path_via((0, 0), &[(5, 0), (5, 2)], (9, 2), PathOptions::default()).unwrap();
+        assert_eq!(p.iter().filter(|&&q| q == (5, 0)).count(), 1);
+        assert_eq!(p.iter().filter(|&&q| q == (5, 2)).count(), 1);
+        assert_eq!(*p.last().unwrap(), (9, 2));
+    }
+
+    #[test]
+    fn prefere_safe_quando_pedido() {
+        // Duas faixas: em cima normal, embaixo safe; a de baixo é 1 passo mais longa.
+        let t = grid(&["..........", ".########.", "ssssssssss"]);
+        let normal = t.path((0, 0), (9, 0)).unwrap();
+        assert!(normal.iter().all(|&(_, y)| y == 0));
+        let safe = t.path_opts((0, 1), (9, 1), PathOptions { prefer_safe: true, ..Default::default() }).unwrap();
+        assert!(safe.iter().filter(|&&(_, y)| y == 2).count() > safe.iter().filter(|&&(_, y)| y == 0).count(), "{safe:?}");
+    }
+
+    #[test]
+    fn suavizacao_tira_zigue_zague_sem_atravessar_quina() {
+        let t = grid(&["..........", "....#.....", ".........."]);
+        let p = t.path((0, 1), (9, 1)).unwrap();
+        let s = t.smooth((0, 1), &p);
+        assert!(s.len() < p.len());
+        let mut a = (0, 1);
+        for &b in &s {
+            assert!(t.los_clear(a, b), "{a:?} -> {b:?}");
+            a = b;
+        }
+        assert_eq!(*s.last().unwrap(), (9, 1));
+        let q = grid(&[".#", "#."]);
+        assert!(!q.los_clear((0, 0), (1, 1)));
+    }
+
+    #[test]
+    fn exporta_e_le_formato_do_servidor() {
+        let t = grid(&["s.#", "..."]);
+        let raw = t.to_server_file();
+        assert_eq!(raw.len(), 65540);
+        assert_eq!(&raw[..4], &[0, 9, 255, 255]);
+        let back = Terrain::from_client_file(&raw).unwrap();
+        assert_eq!(back, t);
+    }
 }

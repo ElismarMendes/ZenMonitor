@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZenMonitor · Simulador de navegação</title>
+<style>
+:root{--bg:#0b1118;--pan:#121b26;--bd:#22303f;--tx:#d7e3ef;--mut:#7d8fa3;--ok:#2fd27a;--warn:#f2b84b;--bad:#f2546a;--acc:#3b9eff}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:13px/1.35 "Segoe UI",system-ui,sans-serif}
+#app{display:grid;grid-template-columns:1fr 300px;height:100vh}
+#stage{position:relative;overflow:hidden}
+canvas#cv{width:100%;height:100%;display:block;cursor:crosshair}
+#side{border-left:1px solid var(--bd);background:var(--pan);overflow:auto;padding:10px}
+h1{font-size:14px;margin:0 0 8px}h2{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px}
+.row{display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap}
+button,select,input[type=number]{background:#0f1720;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font:inherit}
+button.on{border-color:var(--acc);color:#fff;background:#173253}button:hover{border-color:#3a5470}
+label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px}.kv span:nth-child(odd){color:var(--mut)}
+.note{color:var(--mut);font-size:12px}
+#mini{width:100%;aspect-ratio:1;image-rendering:pixelated;border:1px solid var(--bd);border-radius:6px;cursor:pointer;display:block}
+#hud{position:absolute;left:10px;top:10px;background:rgba(8,14,20,.82);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;pointer-events:none;min-width:240px}
+#hud b{color:#fff}.st-ok{color:var(--ok)}.st-warn{color:var(--warn)}.st-bad{color:var(--bad)}
+#tl{width:100%}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="stage"><canvas id="cv"></canvas><div id="hud"></div></div>
+<div id="side">
+  <h1>Simulador de navegação</h1>
+  <div class="note">Nada aqui mexe no jogo. Clique = destino · Ctrl+clique = waypoint · Shift+clique = entidade (NPC/mob) · segurar o botão (modo nativo) = andar segurando · roda = zoom · botão do meio/direito = mover a câmera.</div>
+  <h2>Mapa</h2>
+  <div class="row"><select id="map"></select><button id="reload">Carregar</button></div>
+  <div class="row"><label class="note"><input type="file" id="file" accept=".att"> arquivo .att (cliente ou servidor)</label></div>
+  <div class="row"><button id="export">Exportar formato servidor (65.540 bytes)</button></div>
+  <h2>Modo</h2>
+  <div class="row"><button id="mNative">Cliente MU nativo</button><button id="mBot" class="on">Bot (A* global)</button></div>
+  <div class="row"><label><input type="checkbox" id="optSafe"> preferir safe (×0,7 / ×1,3)</label></div>
+  <div class="row"><label><input type="checkbox" id="optSmooth" checked> suavizar rota (linha de visão)</label></div>
+  <div class="row"><label><input type="checkbox" id="optProj"> projeção inclinada (y × 0,72)</label></div>
+  <div class="row"><label><input type="checkbox" id="optFollow" checked> câmera segue o char</label></div>
+  <h2>Simulação</h2>
+  <div class="row"><button id="play" class="on">⏸ Pausar</button><select id="spd"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option><option>4</option></select>× <button id="reset">Reiniciar</button></div>
+  <div class="row"><input type="range" id="tl" min="0" max="0" value="0"></div>
+  <div class="note" id="tlInfo">linha do tempo: pause para voltar</div>
+  <h2>Entidades</h2>
+  <div class="row"><select id="liveChar"><option value="">char ao vivo…</option></select><button id="live">Trazer mobs/NPCs</button><button id="clearEnt">Limpar</button></div>
+  <div class="row"><button id="clearWp">Limpar waypoints</button><button id="here">Char aqui (centro)</button></div>
+  <h2>Minimapa</h2>
+  <canvas id="mini" width="256" height="256"></canvas>
+  <h2>Última rota</h2>
+  <div class="kv" id="stats"></div>
+</div>
+</div>
+<script>
+"use strict";
+const N = 256, SAFE = 1, CHAR = 2, NOMOVE = 4, NOGROUND = 8, WATER = 16;
+const SQ2 = Math.SQRT2, DEAD = 0.8, HORIZON = 12, HOLD_MS = 160, WALK = 3.2, RUN = 5.8, TURN = 14, YS = 0.72, HOP = 6;
+const $ = id => document.getElementById(id);
+const cv = $("cv"), g = cv.getContext("2d");
+let attr = null, world = 38, bake = null;
+const S = { mode: "bot", play: true, spd: 1, proj: false, follow: true, safe: false, smooth: true };
+const ch = { x: 30.5, y: 210.5, face: 0, target: 0, path: [], hops: [], status: "parado", speed: 0, dest: null, wps: [], holding: false, holdAt: 0, lastAstarMs: 0 };
+let ents = []; // {x,y,kind,name}
+const cam = { x: 128, y: 128, z: 6 };
+let mouse = { sx: 0, sy: 0, wx: 0, wy: 0, in: false, down: false, btn: 0 };
+let timeline = [], tIndex = -1;
+
+// ------------------------------------------------------------- .att (cliente e servidor)
+const K16 = [0xD1,0x73,0x52,0xF6,0xD2,0x9A,0xCB,0x27,0x3E,0xAF,0x59,0x31,0x37,0xB3,0xE7,0xA2], K3 = [0xFC,0xCF,0xAB];
+function decodeAtt(raw) {
+  let per, d;
+  if (raw.length === 65540 && raw[0] === 0 && raw[2] === 255 && raw[3] === 255) { per = 1; d = raw; }
+  else if (raw.length === 65540 || raw.length === 131076) {
+    per = raw.length === 65540 ? 1 : 2; d = new Uint8Array(raw.length); let key = 0x5E;
+    for (let i = 0; i < raw.length; i++) { const p1 = ((raw[i] ^ K16[i % 16]) - key) & 0xFF; key = (raw[i] + 0x3D) & 0xFF; d[i] = p1 ^ K3[i % 3]; }
+  } else throw new Error("tamanho inesperado: " + raw.length);
+  if (d[0] !== 0 || d[2] !== 255 || d[3] !== 255) throw new Error("cabeçalho inesperado: " + [d[0], d[1], d[2], d[3]]);
+  const t = new Uint8Array(N * N); for (let i = 0; i < N * N; i++) t[i] = d[4 + i * per];
+  return { world: d[1], attr: t };
+}
+function exportServer() {
+  const out = new Uint8Array(65540); out.set([0, world, 255, 255]); out.set(attr, 4);
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([out])); a.download = `Terrain${world}.att`; a.click();
+}
+
+// ------------------------------------------------------------- terreno e entidades
+const ix = (x, y) => y * N + x;
+const inside = (x, y) => x >= 0 && y >= 0 && x < N && y < N;
+let entSet = new Set();
+function rebuildEnts() { entSet = new Set(ents.map(e => ix(e.x, e.y))); if (typeof rebuildMask === "function") rebuildMask(); }
+const walk = (x, y, withEnts = true) => inside(x, y) && (attr[ix(x, y)] & (NOMOVE | NOGROUND)) === 0 && !(withEnts && entSet.has(ix(x, y)));
+const isSafe = (x, y) => inside(x, y) && (attr[ix(x, y)] & SAFE) !== 0;
+
+// ------------------------------------------------------------- A* (heap binária, arrays tipados)
+// Sem alocação no laço: máscara de bloqueio pronta (parede/sem chão + entidades), g/veio-de/fechado
+// com carimbo de geração (não precisa limpar 65.536 posições a cada busca).
+const G = new Float32Array(N * N), CAME = new Int32Array(N * N), STAMP = new Uint32Array(N * N), CLOSED = new Uint32Array(N * N);
+const HK = new Float32Array(N * N * 8), HN = new Int32Array(N * N * 8);
+let BLK = new Uint8Array(N * N), gen = 0;
+function rebuildMask() { BLK = new Uint8Array(N * N); if (!attr) return; for (let i = 0; i < N * N; i++) BLK[i] = (attr[i] & (NOMOVE | NOGROUND)) ? 1 : 0; for (const k of entSet) BLK[k] |= 2; }
+const DX = [1, -1, 0, 0, 1, 1, -1, -1], DY = [0, 0, 1, -1, 1, -1, 1, -1];
+function astar(sx, sy, tx, ty, opt = {}) {
+  const m = opt.ents === false ? 1 : 3;
+  const free = (x, y) => x >= 0 && y >= 0 && x < N && y < N && (BLK[y * N + x] & m) === 0;
+  if (!free(tx, ty) || !inside(sx, sy) || (BLK[sy * N + sx] & 1)) return null;
+  if (sx === tx && sy === ty) return [[tx, ty]];
+  gen++; let n = 0;
+  const push = (k, v) => { let i = n++; while (i > 0) { const p = (i - 1) >> 1; if (HK[p] <= k) break; HK[i] = HK[p]; HN[i] = HN[p]; i = p; } HK[i] = k; HN[i] = v; };
+  const pop = () => { const top = HN[0]; n--; const k = HK[n], v = HN[n]; let i = 0;
+    for (;;) { const l = 2 * i + 1; if (l >= n) break; const r = l + 1, c = r < n && HK[r] < HK[l] ? r : l; if (HK[c] >= k) break; HK[i] = HK[c]; HN[i] = HN[c]; i = c; }
+    HK[i] = k; HN[i] = v; return top; };
+  const hs = opt.safe ? 0.7 : 1, safe = !!opt.safe;
+  const s = sy * N + sx, goal = ty * N + tx;
+  STAMP[s] = gen; G[s] = 0; CAME[s] = -1;
+  { const dx = Math.abs(sx - tx), dy = Math.abs(sy - ty); push((Math.max(dx, dy) + (SQ2 - 1) * Math.min(dx, dy)) * 1.001 * hs, s); }
+  while (n > 0) {
+    const c = pop(); if (CLOSED[c] === gen) continue; CLOSED[c] = gen;
+    if (c === goal) { const out = []; let k = c; while (k !== s && k >= 0) { out.push([k % N, (k / N) | 0]); k = CAME[k]; } return out.reverse(); }
+    const x = c % N, y = (c / N) | 0, gc = G[c];
+    for (let d = 0; d < 8; d++) {
+      const dx = DX[d], dy = DY[d], nx = x + dx, ny = y + dy;
+      if (!free(nx, ny)) continue; const ni = ny * N + nx; if (CLOSED[ni] === gen) continue;
+      if (d >= 4 && !(free(x + dx, y) && free(x, y + dy))) continue; // sem cortar quina
+      let st = d >= 4 ? SQ2 : 1; if (safe) st *= (attr[ni] & SAFE) ? 0.7 : 1.3;
+      const ng = gc + st;
+      if (STAMP[ni] !== gen || ng < G[ni]) { STAMP[ni] = gen; G[ni] = ng; CAME[ni] = c;
+        const ax = Math.abs(nx - tx), ay = Math.abs(ny - ty); push(ng + (Math.max(ax, ay) + (SQ2 - 1) * Math.min(ax, ay)) * 1.001 * hs, ni); }
+    }
+  }
+  return null;
+}
+function astarVia(s, wps, t, opt) {
+  const out = []; let cur = s;
+  for (const p of [...wps, t]) { if (p[0] === cur[0] && p[1] === cur[1]) continue; const seg = astar(cur[0], cur[1], p[0], p[1], opt); if (!seg) return null; out.push(...seg); cur = p; }
+  return out;
+}
+// Bresenham sem cortar quina
+function los(a, b, ents_ = true) {
+  let [x, y] = a; const [x1, y1] = b, dx = Math.abs(x1 - x), dy = -Math.abs(y1 - y), sx = x < x1 ? 1 : -1, sy = y < y1 ? 1 : -1; let err = dx + dy;
+  while (x !== x1 || y !== y1) {
+    const e2 = 2 * err; let nx = x, ny = y;
+    if (e2 >= dy) { err += dy; nx += sx; } if (e2 <= dx) { err += dx; ny += sy; }
+    if (!walk(nx, ny, ents_) || (nx !== x && ny !== y && !(walk(nx, y, ents_) && walk(x, ny, ents_)))) return false;
+    x = nx; y = ny;
+  }
+  return true;
+}
+function smooth(from, path) { const out = []; let a = from, i = 0; while (i < path.length) { let j = i; while (j + 1 < path.length && los(a, path[j + 1])) j++; out.push(path[j]); a = path[j]; i = j + 1; } return out; }
+function hops(from, path) { // sub-cliques a cada 6 tiles, dentro do anel do char e com linha livre
+  const out = []; let cur = from, i = 0;
+  while (i < path.length) { let best = i; for (let j = i; j < path.length; j++) { const p = path[j]; if (Math.max(Math.abs(p[0] - cur[0]), Math.abs(p[1] - cur[1])) > HOP) break; if (los(cur, p)) best = j; } out.push(path[best]); cur = path[best]; i = best + 1; }
+  return out;
+}
+
+// ------------------------------------------------------------- planejar (modo bot)
+function planTo(dest) {
+  const s = [Math.floor(ch.x), Math.floor(ch.y)], t0 = performance.now();
+  let p = astarVia(s, ch.wps, dest, { safe: S.safe });
+  const ms = performance.now() - t0;
+  ch.lastAstarMs = ms;
+  if (!p) { ch.status = "sem rota"; ch.path = []; ch.hops = []; stats({ "A*": ms.toFixed(3) + " ms", "resultado": "sem caminho" }); return; }
+  const raw = p.length; let len = 0, prev = s; for (const q of p) { len += (q[0] !== prev[0] && q[1] !== prev[1]) ? SQ2 : 1; prev = q; }
+  const sm = S.smooth ? smooth(s, p) : p;
+  ch.path = p; ch.hops = hops(s, p); ch.dest = dest; ch.status = "andando";
+  stats({ "A*": ms.toFixed(3) + " ms", "nós da rota": raw, "custo": len.toFixed(1) + " tiles", "pontos suavizados": sm.length, "sub-cliques (6 t)": ch.hops.length, "waypoints": ch.wps.length });
+  ch.smoothPts = sm;
+}
+function stats(o) { $("stats").innerHTML = Object.entries(o).map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join(""); }
+
+// ------------------------------------------------------------- modo nativo
+function rayClamp(tx, ty) { // limita a 12 tiles ou à última célula livre antes da parede
+  const x0 = Math.floor(ch.x), y0 = Math.floor(ch.y); let dx = tx - ch.x, dy = ty - ch.y; const d = Math.hypot(dx, dy);
+  const lim = Math.min(d, HORIZON); dx /= d || 1; dy /= d || 1; let last = [x0, y0];
+  for (let s = 0.5; s <= lim; s += 0.25) { const cx = Math.floor(ch.x + dx * s), cy = Math.floor(ch.y + dy * s); if (cx === last[0] && cy === last[1]) continue;
+    if (!walk(cx, cy) || (cx !== last[0] && cy !== last[1] && !(walk(cx, last[1]) && walk(last[0], cy)))) break; last = [cx, cy]; }
+  return last;
+}
+function nativeStep(ang) { // desliza na parede: direto, ±45°, ±90°
+  const cx = Math.floor(ch.x), cy = Math.floor(ch.y);
+  for (const off of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
+    const a = ang + off, dx = Math.round(Math.cos(a)), dy = Math.round(Math.sin(a)); if (!dx && !dy) continue;
+    const nx = cx + dx, ny = cy + dy; if (!walk(nx, ny)) continue; if (dx && dy && !(walk(cx + dx, cy) && walk(cx, cy + dy))) continue;
+    return [nx, ny, off !== 0];
+  }
+  return null;
+}
+function nativeClick(wx, wy) {
+  const d = Math.hypot(wx - ch.x, wy - ch.y); ch.target = Math.atan2(wy - ch.y, wx - ch.x);
+  if (d < DEAD) { ch.status = "zona morta: só gira"; ch.path = []; return; }
+  const [tx, ty] = rayClamp(wx, wy); ch.dest = [tx, ty]; ch.path = [[tx, ty]]; ch.hops = []; ch.status = d > HORIZON ? "além de 12 t: limitado" : "andando (nativo)";
+}
+
+// ------------------------------------------------------------- física
+let acc = 0;
+function tick(dt) {
+  // inércia angular
+  let diff = ((ch.target - ch.face + Math.PI * 3) % (Math.PI * 2)) - Math.PI; const maxT = TURN * dt;
+  ch.face += Math.abs(diff) <= maxT ? diff : Math.sign(diff) * maxT;
+  if (S.mode === "native" && mouse.down && mouse.btn === 0) {
+    ch.holdAt += dt * 1000;
+    if (ch.holdAt >= HOLD_MS) { ch.holdAt = 0; const d = Math.hypot(mouse.wx - ch.x, mouse.wy - ch.y); ch.target = Math.atan2(mouse.wy - ch.y, mouse.wx - ch.x);
+      if (d < DEAD) { ch.status = "zona morta: só gira"; ch.path = []; }
+      else { const st = nativeStep(ch.target); if (st) { ch.path = [[st[0], st[1]]]; ch.status = st[2] ? "deslizando na parede" : "segurando"; } else { ch.path = []; ch.status = "TRAVADO (todas as direções bloqueadas)"; } } }
+  }
+  if (!ch.path.length) { ch.speed = 0; if (ch.status === "andando" || ch.status === "andando (nativo)") ch.status = "chegou"; return; }
+  const [nx, ny] = ch.path[0];
+  // colisão dinâmica: entidade no próximo passo
+  if (entSet.has(ix(nx, ny))) {
+    if (S.mode === "bot" && ch.dest) { ch.status = "entidade no caminho: recalculando"; planTo(ch.dest); return; }
+    ch.status = "parado: entidade no caminho"; ch.path = []; return;
+  }
+  const tx = nx + 0.5, ty = ny + 0.5, dx = tx - ch.x, dy = ty - ch.y, dist = Math.hypot(dx, dy);
+  ch.target = Math.atan2(dy, dx);
+  const v = isSafe(Math.floor(ch.x), Math.floor(ch.y)) ? WALK : RUN; ch.speed = v;
+  const stepLen = v * dt;
+  if (dist <= stepLen) { ch.x = tx; ch.y = ty; ch.path.shift(); if (ch.hops.length && ch.hops[0][0] === nx && ch.hops[0][1] === ny) ch.hops.shift(); }
+  else { ch.x += dx / dist * stepLen; ch.y += dy / dist * stepLen; }
+}
+
+// ------------------------------------------------------------- câmera e projeção
+function sizeCanvas() { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; }
+const ys = () => S.proj ? YS : 1;
+function w2s(x, y) { return [(x - cam.x) * cam.z * devicePixelRatio + cv.width / 2, (y - cam.y) * cam.z * ys() * devicePixelRatio + cv.height / 2]; }
+function s2w(sx, sy) { return [(sx * devicePixelRatio - cv.width / 2) / (cam.z * devicePixelRatio) + cam.x, (sy * devicePixelRatio - cv.height / 2) / (cam.z * ys() * devicePixelRatio) + cam.y]; }
+
+// ------------------------------------------------------------- desenho
+function bakeMap() {
+  bake = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(N, N) : Object.assign(document.createElement("canvas"), { width: N, height: N });
+  const c = bake.getContext("2d"), im = c.createImageData(N, N);
+  for (let i = 0; i < N * N; i++) { const a = attr[i]; let col;
+    if (a & NOGROUND) col = [6, 8, 10]; else if (a & NOMOVE) col = [74, 18, 22]; else if (a & SAFE) col = [176, 140, 40]; else if (a & WATER) col = [26, 70, 120]; else col = [34, 52, 40];
+    im.data.set([...col, 255], i * 4); }
+  c.putImageData(im, 0, 0);
+  const m = $("mini").getContext("2d"); m.imageSmoothingEnabled = false; m.drawImage(bake, 0, 0);
+}
+function draw() {
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = "#06090d"; g.fillRect(0, 0, cv.width, cv.height);
+  if (!attr) { g.fillStyle = "#7d8fa3"; g.font = "16px Segoe UI"; g.fillText("carregando o terreno…", 20, 30); return; }
+  if (S.follow) { cam.x = ch.x; cam.y = ch.y; }
+  const [ox, oy] = w2s(0, 0), Z = cam.z * devicePixelRatio;
+  g.imageSmoothingEnabled = false; g.drawImage(bake, ox, oy, N * Z, N * Z * ys());
+  if (cam.z >= 10) { g.strokeStyle = "rgba(255,255,255,.05)"; g.lineWidth = 1; const [a] = s2w(0, 0), [b] = s2w(cv.width / devicePixelRatio, 0); for (let x = Math.floor(a); x <= b + 1; x++) { const [sx] = w2s(x, 0); g.beginPath(); g.moveTo(sx, 0); g.lineTo(sx, cv.height); g.stroke(); } }
+  const P = (x, y) => w2s(x + 0.5, y + 0.5);
+  // rota
+  if (ch.path.length) { g.strokeStyle = "rgba(59,158,255,.9)"; g.lineWidth = 2 * devicePixelRatio; g.beginPath(); let [sx, sy] = w2s(ch.x, ch.y); g.moveTo(sx, sy); for (const q of ch.path) { const [a, b] = P(q[0], q[1]); g.lineTo(a, b); } g.stroke(); }
+  if (S.smooth && ch.smoothPts && ch.path.length && S.mode === "bot") { g.strokeStyle = "rgba(47,210,122,.7)"; g.setLineDash([6, 4]); g.beginPath(); let [sx, sy] = w2s(ch.x, ch.y); g.moveTo(sx, sy); for (const q of ch.smoothPts) { const [a, b] = P(q[0], q[1]); g.lineTo(a, b); } g.stroke(); g.setLineDash([]); }
+  // sub-cliques C1, C2...
+  g.font = `bold ${11 * devicePixelRatio}px Segoe UI`;
+  ch.hops.forEach((q, i) => { const [a, b] = P(q[0], q[1]); g.strokeStyle = "#f2b84b"; g.lineWidth = 2; g.beginPath(); g.moveTo(a - 7, b); g.lineTo(a + 7, b); g.moveTo(a, b - 7); g.lineTo(a, b + 7); g.stroke(); g.fillStyle = "#f2b84b"; g.fillText("C" + (i + 1), a + 8, b - 6); });
+  // waypoints e destino
+  ch.wps.forEach((q, i) => { const [a, b] = P(q[0], q[1]); g.fillStyle = "#c08cff"; g.beginPath(); g.arc(a, b, 6, 0, 7); g.fill(); g.fillText("W" + (i + 1), a + 8, b + 4); });
+  if (ch.dest) { const [a, b] = P(ch.dest[0], ch.dest[1]); g.strokeStyle = "#fff"; g.lineWidth = 2; g.strokeRect(a - 7, b - 7, 14, 14); }
+  // entidades
+  for (const e of ents) { const [a, b] = P(e.x, e.y); g.fillStyle = e.kind === "npc" ? "#2fd27a" : e.kind === "player" ? "#9fe8ff" : "#f2546a"; g.fillRect(a - 5, b - 5, 10, 10); if (cam.z >= 8 && e.name) { g.fillStyle = "#ddd"; g.fillText(e.name, a + 7, b - 6); } }
+  // char, zona morta (0,8 t), anel nativo (12 t), vetor até o cursor
+  const [cx, cy] = w2s(ch.x, ch.y);
+  g.strokeStyle = "rgba(255,255,255,.5)"; g.lineWidth = 1; g.beginPath(); g.ellipse(cx, cy, DEAD * Z, DEAD * Z * ys(), 0, 0, 7); g.stroke();
+  g.setLineDash([8, 6]); g.strokeStyle = "rgba(59,158,255,.6)"; g.beginPath(); g.ellipse(cx, cy, HORIZON * Z, HORIZON * Z * ys(), 0, 0, 7); g.stroke(); g.setLineDash([]);
+  g.fillStyle = "#fff"; g.beginPath(); g.arc(cx, cy, 6, 0, 7); g.fill();
+  g.strokeStyle = "#ff8c3b"; g.lineWidth = 3; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(ch.face) * 18, cy + Math.sin(ch.face) * 18 * ys()); g.stroke();
+  if (mouse.in) { const d = Math.hypot(mouse.wx - ch.x, mouse.wy - ch.y); const [mx, my] = w2s(mouse.wx, mouse.wy);
+    g.strokeStyle = d < DEAD ? "#7d8fa3" : d <= HORIZON ? "#2fd27a" : "#f2b84b"; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(mx, my); g.stroke();
+    const px = Math.hypot(mx - cx, my - cy) / devicePixelRatio; g.fillStyle = "#fff"; g.fillText(`${d.toFixed(1)} t · ${px.toFixed(0)} px`, mx + 10, my - 8); }
+  // minimapa: char e visão
+  const m = $("mini").getContext("2d"); m.drawImage(bake, 0, 0); m.fillStyle = "#fff"; m.fillRect(ch.x - 2, ch.y - 2, 4, 4);
+  const [a, b] = s2w(0, 0), [c, d] = s2w(cv.width / devicePixelRatio, cv.height / devicePixelRatio); m.strokeStyle = "#3b9eff"; m.strokeRect(a, b, c - a, d - b);
+  hud();
+}
+function hud() {
+  const tx = Math.floor(ch.x), ty = Math.floor(ch.y), a = attr[ix(tx, ty)];
+  const kind = a & SAFE ? '<span class="st-warn">Zona Segura</span>' : '<span class="st-ok">Campo de Caça</span>';
+  const mt = mouse.in ? [Math.floor(mouse.wx), Math.floor(mouse.wy)] : null;
+  const md = mouse.in ? Math.hypot(mouse.wx - ch.x, mouse.wy - ch.y) : null;
+  const stc = /TRAV|sem rota|parado/.test(ch.status) ? "st-bad" : /desliz|recalc|zona morta|limitado/.test(ch.status) ? "st-warn" : "st-ok";
+  $("hud").innerHTML = `<b>World ${world}</b> · (${tx}, ${ty}) · ${kind}<br>
+    modo: <b>${S.mode === "bot" ? "bot (A* global, cliques a cada 6 t)" : "cliente nativo"}</b><br>
+    estado: <span class="${stc}">${ch.status}</span><br>
+    velocidade: ${ch.speed ? ch.speed.toFixed(1) + " t/s" : "0"} · rumo ${(ch.face * 180 / Math.PI).toFixed(0)}°<br>
+    mouse: ${mt ? `(${mt[0]}, ${mt[1]}) · ${md.toFixed(2)} t${md < DEAD ? " · zona morta" : md > HORIZON ? " · além de 12 t" : ""}` : "—"}<br>
+    colisão: ${entSet.size} entidade(s) · último A* ${ch.lastAstarMs ? ch.lastAstarMs.toFixed(3) + " ms" : "—"}`;
+}
+
+// ------------------------------------------------------------- laço e linha do tempo
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000) * S.spd; last = now;
+  if (S.play && attr) { tick(dt); timeline.push({ x: ch.x, y: ch.y, face: ch.face, status: ch.status }); if (timeline.length > 6000) timeline.shift(); $("tl").max = timeline.length - 1; $("tl").value = timeline.length - 1; }
+  draw(); requestAnimationFrame(frame);
+}
+$("tl").oninput = e => { S.play = false; $("play").textContent = "▶ Continuar"; $("play").classList.remove("on"); const s = timeline[+e.target.value]; if (s) { ch.x = s.x; ch.y = s.y; ch.face = s.face; ch.status = "linha do tempo: " + s.status; ch.path = []; ch.hops = []; } $("tlInfo").textContent = `quadro ${e.target.value} de ${timeline.length - 1}`; };
+
+// ------------------------------------------------------------- entrada
+cv.addEventListener("contextmenu", e => e.preventDefault());
+cv.addEventListener("mousemove", e => { const r = cv.getBoundingClientRect(); mouse.sx = e.clientX - r.left; mouse.sy = e.clientY - r.top; [mouse.wx, mouse.wy] = s2w(mouse.sx, mouse.sy); mouse.in = true;
+  if (mouse.down && mouse.btn !== 0) { cam.x -= e.movementX / cam.z; cam.y -= e.movementY / (cam.z * ys()); S.follow = false; $("optFollow").checked = false; } });
+cv.addEventListener("mouseleave", () => { mouse.in = false; mouse.down = false; });
+cv.addEventListener("mousedown", e => { mouse.down = true; mouse.btn = e.button; if (e.button !== 0 || !attr) return;
+  const t = [Math.floor(mouse.wx), Math.floor(mouse.wy)]; if (!inside(t[0], t[1])) return;
+  if (e.shiftKey) { const i = ents.findIndex(q => q.x === t[0] && q.y === t[1]); if (i >= 0) ents.splice(i, 1); else ents.push({ x: t[0], y: t[1], kind: "monster", name: "" }); rebuildEnts(); return; }
+  if (e.ctrlKey) { ch.wps.push(t); return; }
+  if (S.mode === "bot") planTo(t); else { ch.holdAt = HOLD_MS; nativeClick(mouse.wx, mouse.wy); } });
+addEventListener("mouseup", () => { mouse.down = false; if (S.mode === "native" && ch.status === "segurando") ch.status = "parado"; });
+cv.addEventListener("wheel", e => { e.preventDefault(); cam.z = Math.max(2, Math.min(40, cam.z * (e.deltaY < 0 ? 1.15 : 1 / 1.15))); }, { passive: false });
+$("mini").onclick = e => { const r = e.target.getBoundingClientRect(); cam.x = (e.clientX - r.left) / r.width * N; cam.y = (e.clientY - r.top) / r.height * N; S.follow = false; $("optFollow").checked = false; };
+const setMode = m => { S.mode = m; $("mNative").classList.toggle("on", m === "native"); $("mBot").classList.toggle("on", m === "bot"); ch.path = []; ch.hops = []; ch.status = "parado"; };
+$("mNative").onclick = () => setMode("native"); $("mBot").onclick = () => setMode("bot");
+$("optSafe").onchange = e => S.safe = e.target.checked; $("optSmooth").onchange = e => S.smooth = e.target.checked;
+$("optProj").onchange = e => S.proj = e.target.checked; $("optFollow").onchange = e => S.follow = e.target.checked;
+$("play").onclick = () => { S.play = !S.play; $("play").textContent = S.play ? "⏸ Pausar" : "▶ Continuar"; $("play").classList.toggle("on", S.play); };
+$("spd").onchange = e => S.spd = +e.target.value;
+$("reset").onclick = () => { placeStart(); timeline = []; };
+$("clearEnt").onclick = () => { ents = []; rebuildEnts(); };
+$("clearWp").onclick = () => { ch.wps = []; };
+$("here").onclick = () => { const x = Math.floor(cam.x), y = Math.floor(cam.y); if (walk(x, y)) { ch.x = x + .5; ch.y = y + .5; ch.path = []; ch.hops = []; } };
+$("export").onclick = () => attr && exportServer();
+$("file").onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const r = decodeAtt(new Uint8Array(await f.arrayBuffer())); world = r.world; attr = r.attr; ents = []; rebuildEnts(); bakeMap(); placeStart(); } catch (err) { alert("arquivo .att inválido: " + err.message); } };
+
+// ------------------------------------------------------------- dados da central
+async function loadMaps() {
+  try { const ms = await (await fetch("/api/maps")).json(); $("map").innerHTML = ms.filter(m => m.terrain).map(m => `<option value="${m.world}" ${m.world === world ? "selected" : ""}>${m.name} (World ${m.world})</option>`).join(""); }
+  catch { $("map").innerHTML = '<option value="38">Kanturu (World 38)</option>'; }
+}
+async function loadTerrain(w) {
+  const t = await (await fetch("/api/terrain/" + w)).json(); world = t.world;
+  attr = t.attr ? Uint8Array.from(atob(t.attr), c => c.charCodeAt(0)) : Uint8Array.from(atob(t.codes), c => { const v = c.charCodeAt(0); return v === 1 ? NOMOVE : v === 2 ? SAFE : 0; });
+  ents = []; rebuildEnts(); bakeMap(); placeStart();
+}
+function placeStart() { // começa na safe mais perto do centro do mapa
+  let best = null, bd = 1e9; for (let i = 0; i < N * N; i++) if ((attr[i] & SAFE) && !(attr[i] & (NOMOVE | NOGROUND))) { const x = i % N, y = (i / N) | 0, d = Math.abs(x - 128) + Math.abs(y - 128); if (d < bd) { bd = d; best = [x, y]; } }
+  if (!best) for (let i = 0; i < N * N && !best; i++) if (!(attr[i] & (NOMOVE | NOGROUND))) best = [i % N, (i / N) | 0];
+  ch.x = best[0] + .5; ch.y = best[1] + .5; ch.path = []; ch.hops = []; ch.dest = null; ch.wps = []; ch.status = "parado"; cam.x = ch.x; cam.y = ch.y;
+}
+async function loadLiveChars() {
+  try { const s = await (await fetch("/api/state")).json(); $("liveChar").innerHTML = '<option value="">char ao vivo…</option>' + (s.chars || []).filter(c => c.pos && c.nearby).map(c => `<option value="${c.machine}|${c.name}">${c.name} · ${c.map || "?"} (${c.pos.join(",")})</option>`).join(""); window._state = s; } catch {}
+}
+$("live").onclick = async () => { await loadLiveChars(); const k = $("liveChar").value; const c = (window._state?.chars || []).find(c => c.machine + "|" + c.name === k); if (!c) return;
+  ents = (c.nearby || []).map(o => ({ x: o.x, y: o.y, kind: o.kind, name: o.name })); rebuildEnts(); ch.x = c.pos[0] + .5; ch.y = c.pos[1] + .5; ch.path = []; ch.hops = []; S.follow = true; $("optFollow").checked = true; };
+$("reload").onclick = () => loadTerrain(+$("map").value);
+addEventListener("resize", sizeCanvas);
+sizeCanvas(); loadMaps().then(() => loadTerrain(world)).catch(e => { $("hud").textContent = "terreno indisponível: " + e; }); loadLiveChars();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

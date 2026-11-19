@@ -132,10 +132,26 @@ pub(in crate::win::nav) fn walking_route(t: &Terrain, from: (i32,i32), to: (i32,
 pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
     // Caminhada da versão estável (até o 140): sem vigia de progresso, sem obstáculo dinâmico de
     // mob e sem rota de fuga (voltado em 18/11 22:06 a pedido do dono: "está travando muito").
-    let route = |from, to| walking_route(t, from, to, arrival);
+    // 19/11 (especificação do dono): NPC vivo (lido na memória no começo de cada trecho) bloqueia
+    // o próprio tile no A*; o destino e a vizinhança dele ficam livres (baú, Lugard, Trainer).
+    // Monstros NÃO bloqueiam: andam e o helper/skill cuida deles. Sem rota desviando = rota normal.
+    let route = |from: (i32, i32), to: (i32, i32)| {
+        let npcs: Vec<(i32, i32)> = if arrival == WalkArrival::Trainer {
+            Vec::new()
+        } else {
+            LIVE_NPCS.lock().map(|g| g.iter().copied().filter(|n| cheb(*n, to) > 1 && *n != from).collect()).unwrap_or_default()
+        };
+        if npcs.is_empty() {
+            walking_route(t, from, to, arrival)
+        } else {
+            walking_route(&t.with_blocked(&npcs), from, to, arrival).or_else(|| walking_route(t, from, to, arrival))
+        }
+    };
     let t0 = std::time::Instant::now();
     CUR_WORLD.store(t.world, std::sync::atomic::Ordering::SeqCst);
     let mut last = settle(hwnd).ok_or("não li as coordenadas")?;
+    // NPCs deste mapa já no primeiro trecho (a lista anterior pode ser de outro mapa).
+    refresh_live_npcs(hwnd, last);
     let next_wp = |pos: (i32, i32)| -> Option<(f64, f64)> {
         let path = route(pos, target)?;
         let wp = t.waypoints(pos, &path, 6)[0];

@@ -29,6 +29,8 @@ use zen_core::protocol::{version_accepted, AgentMsg, CentralMsg, Command, PanelC
 
 /// Painel novo (v4, Etapa 2). Fica em /v4 ao lado do antigo até ser aprovado.
 const V4_HTML: &str = include_str!("../web/v4.html");
+/// Simulador de navegação (19/11): A*, física do MU e HUD num canvas, sem tocar no jogo.
+const SIM_HTML: &str = include_str!("../web/simulador.html");
 
 struct App {
     cfg: config::CentralConfig,
@@ -166,6 +168,7 @@ fn router(app: Shared) -> Router {
         .route("/api/panels", get(api_panels))
         .route("/api/golden", get(api_golden))
         .route("/v4", get(|| async { Html(V4_HTML) }))
+        .route("/simulador", get(|| async { Html(SIM_HTML) }))
         .route("/ws/agent", get(ws_agent))
         .route("/ws/pair", get(ws_pair))
         .route("/ws/panel", get(ws_panel))
@@ -991,7 +994,9 @@ async fn api_terrain_world(State(app): State<Shared>, Path(world): Path<u8>) -> 
     }
     (
         [(header::CACHE_CONTROL, "public, max-age=3600")],
-        Json(json!({"w": 256, "h": 256, "world": world, "codes": base64::engine::general_purpose::STANDARD.encode(codes)})),
+        Json(json!({"w": 256, "h": 256, "world": world, "codes": base64::engine::general_purpose::STANDARD.encode(codes),
+            // Bits originais de cada tile (safe 1, entidade 2, parede 4, sem chão 8, água 16).
+            "attr": base64::engine::general_purpose::STANDARD.encode(t.tiles())})),
     )
         .into_response()
 }

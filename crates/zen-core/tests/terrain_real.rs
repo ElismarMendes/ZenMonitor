@@ -56,3 +56,27 @@ fn kanturu_corredor_dos_cristais_fica_fora_da_rota() {
     let rota = t.path((222, 156), (225, 137)).expect("ainda há caminho pelo meio do corredor");
     assert!(rota.iter().all(|&(x, y)| !(226..=227).contains(&x) || !(144..=152).contains(&y)), "rota passou colada nos cristais: {rota:?}");
 }
+
+#[test]
+fn a_estrela_no_kanturu_inteiro_em_menos_de_1_ms_em_media() {
+    let t = load("EncTerrain38.att");
+    let (a, b) = ((30, 210), (225, 137));
+    let n = 50;
+    let t0 = std::time::Instant::now();
+    let mut len = 0;
+    for _ in 0..n {
+        len = t.path(a, b).expect("rota").len();
+    }
+    let ms = t0.elapsed().as_secs_f64() * 1000.0 / n as f64;
+    eprintln!("A* {a:?}->{b:?}: {len} passos, {ms:.3} ms");
+    // Em modo debug é bem mais lento; o limite vale para release (cargo test --release).
+    if !cfg!(debug_assertions) {
+        assert!(ms < 1.0, "{ms} ms");
+    }
+    let s = t.smooth(a, &t.path(a, b).unwrap());
+    let mut cur = a;
+    for p in s {
+        assert!(t.los_clear(cur, p));
+        cur = p;
+    }
+}
