@@ -125,43 +125,22 @@ pub(in crate::win::nav) fn final_walk_arrived(pos: (i32, i32), target: (i32, i32
 }
 
 pub(in crate::win::nav) fn walking_route(t: &Terrain, from: (i32,i32), to: (i32,i32), arrival: WalkArrival) -> Option<Vec<(i32,i32)>> {
-    if arrival == WalkArrival::Trainer { npc_route(t, from, to) } else { t.path(from, to).or_else(|| t.path_escape(from, to)) }
+    // 18/11 22:06 (dono: "volte a navegação para a versão mais estável"): sem a rota de fuga.
+    if arrival == WalkArrival::Trainer { npc_route(t, from, to) } else { t.path(from, to) }
 }
 
 pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i32), arrival: WalkArrival, status: &dyn Fn(String)) -> Result<(i32, i32), String> {
-    // Obstáculos temporários (mobs parados na rota, lidos na memória): só para o A* deste
-    // trecho, numa cópia do terreno. O ATT nunca muda. A cópia só é refeita quando a lista muda.
-    let tun = nav_tuning();
-    let blocks: std::cell::RefCell<(Vec<(i32, i32)>, (i32, i32), Option<Terrain>)> = std::cell::RefCell::new((Vec::new(), (0, 0), None));
-    let route = |from: (i32, i32), to: (i32, i32)| -> Option<Vec<(i32, i32)>> {
-        let b = blocks.borrow();
-        if let Some(dynt) = b.2.as_ref() {
-            if let Some(r) = walking_route(dynt, from, to, arrival) {
-                return Some(r);
-            }
-        }
-        walking_route(t, from, to, arrival)
-    };
-    let set_blocks = |v: Vec<(i32, i32)>, at: (i32, i32)| {
-        let mut b = blocks.borrow_mut();
-        b.2 = if v.is_empty() { None } else { Some(t.with_blocked(&v)) };
-        b.0 = v;
-        b.1 = at;
-    };
+    // Caminhada da versão estável (até o 140): sem vigia de progresso, sem obstáculo dinâmico de
+    // mob e sem rota de fuga (voltado em 18/11 22:06 a pedido do dono: "está travando muito").
+    let route = |from, to| walking_route(t, from, to, arrival);
     let t0 = std::time::Instant::now();
-    let ms = || t0.elapsed().as_millis() as u64;
     CUR_WORLD.store(t.world, std::sync::atomic::Ordering::SeqCst);
     let mut last = settle(hwnd).ok_or("não li as coordenadas")?;
     let next_wp = |pos: (i32, i32)| -> Option<(f64, f64)> {
         let path = route(pos, target)?;
-        let b = blocks.borrow();
-        let wp = b.2.as_ref().unwrap_or(t).waypoints(pos, &path, 6)[0];
+        let wp = t.waypoints(pos, &path, 6)[0];
         Some(((wp.0 - pos.0) as f64, (wp.1 - pos.1) as f64))
     };
-    // Vigia de progresso pela coordenada real (zen_core::navegacao::Progress).
-    let mut prog = zen_core::navegacao::Progress::new(ms(), last, target, route(last, target).map(|p| p.len()).unwrap_or(usize::MAX), tun);
-    let mut local_detours = 0u32;
-    let mut mob_seen: std::collections::HashSet<(i32, i32)> = Default::default();
     // ---- segurar e guiar
     let mut detours = 0u32;
     let mut angle = 0.0f64;
@@ -183,7 +162,6 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
         let mut cur_px = (hx, hy);
         let mut still = 0;
         let mut best = route(last, target).map(|p| p.len()).unwrap_or(usize::MAX);
-        let mut voltas_npc = 0u32;
         loop {
             sleep(250);
             if t0.elapsed().as_secs() > 240 {
@@ -191,12 +169,6 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
             }
             crate::win::spots::check_movement_epoch()?;
             let Some(p) = position(hwnd).filter(|p| cheb(*p, last) <= 4) else { continue };
-            // NPC que anda (Wandering Merchant, 18/11 17:58): a posição lida no começo do trecho
-            // fica velha; relê da memória a cada ~1 s para o cursor desviar dele.
-            voltas_npc += 1;
-            if voltas_npc % 4 == 0 {
-                refresh_live_npcs(hwnd, p);
-            }
             crate::win::spots::check_approach_at(hwnd, t.world, p, false)?;
             if p == last {
                 still += 1;
@@ -207,46 +179,7 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
             if cheb(p, target) <= 2 {
                 break 'hold;
             }
-            {
-                let far = { let b = blocks.borrow(); !b.0.is_empty() && cheb(b.1, p) >= tun.forget_blocks_after_tiles };
-                if far {
-                    set_blocks(Vec::new(), p);
-                }
-            }
             let remaining = route(p, target).map(|v| v.len()).unwrap_or(usize::MAX);
-            match prog.update(ms(), p, remaining) {
-                zen_core::navegacao::Verdict::NoProgress { .. } => {
-                    h.release();
-                    drop(h);
-                    let m = format!("sem progresso: {}", prog.describe(ms()));
-                    tracing::warn!(hwnd, "{m}");
-                    save_error_shot(hwnd, &m);
-                    return Err(m);
-                }
-                zen_core::navegacao::Verdict::Stalled { ms: parado } if local_detours < tun.max_local_detours => {
-                    // Etapa 2/3: travado com mob em cima da rota -> esse tile vira obstáculo
-                    // temporário e o A* desvia por células livres (sem clicar no mob).
-                    let path = route(p, target);
-                    let mobs = mob_tiles(hwnd, p);
-                    if let (Some(path), Some(mobs)) = (path, mobs) {
-                        if let Some(b) = zen_core::combat::blocking_mob(p, &path, &mobs, 4, 4) {
-                            local_detours += 1;
-                            if mob_seen.insert(b) {
-                                tracing::info!(hwnd, posicao = ?p, mob = ?b, parado_ms = parado, destino = ?target, "navegação: mob parado na rota (desvio local {local_detours}/{})", tun.max_local_detours);
-                            }
-                            let mut v = blocks.borrow().0.clone();
-                            v.extend(zen_core::navegacao::mob_blocks(&[b], tun.mob_block_radius, &[target, p]));
-                            set_blocks(v, p);
-                            status(format!("desviando de mob em {b:?}"));
-                            prog.pause(ms());
-                            h.release();
-                            drop(h);
-                            continue 'hold;
-                        }
-                    }
-                }
-                _ => {}
-            }
             // Perto do spot (até 4 tiles) não: ali os mobs empilham e a limpeza do spot cuida.
             if still >= 2 && clears < 8 && cheb(p, target) > 4 && skill_ok(hwnd, t, p) {
                 if let Some(b) = blocker(hwnd, t, p, target, 3, 3).filter(|b| hits.get(b).copied().unwrap_or(0) < 3) {
@@ -257,18 +190,15 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
                         clears += 1;
                         since_clear = 0;
                     }
-                    prog.pause(ms());
                     continue 'hold;
                 }
             }
-            if still >= 3 && !storage_open(hwnd) && (npc_dialog_open(hwnd) || inventory_open(hwnd)) {
+            if still >= 3 && !storage_open(hwnd) && npc_dialog_open(hwnd) {
                 h.release();
                 drop(h);
-                status(format!("janela de NPC/loja abriu no caminho em {p:?}: fechando (ESC) e mudando a direção"));
-                tracing::warn!(hwnd, posicao = ?p, npc = npc_dialog_open(hwnd), inventario = inventory_open(hwnd), "navegação: janela de NPC/loja aberta no caminho");
+                status(format!("janela de NPC abriu no caminho em {p:?}: fechando (ESC) e mudando a direção"));
                 learn_npc(t.world, tile_at_px(p, cur_px));
                 close_npc_dialog(hwnd);
-                close_stray_shop(hwnd);
                 vault_opens += 1;
                 detours += 1;
                 angle = [0.9, -0.9, 1.4, -1.4, 0.5, -0.5][(vault_opens as usize) % 6];
@@ -340,7 +270,6 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
                         clears += 1;
                         since_clear = 0;
                     }
-                    prog.pause(ms());
                     continue 'hold;
                 }
                 since_clear += 1;
@@ -386,12 +315,6 @@ pub(in crate::win::nav) fn walk_legacy(hwnd: isize, t: &Terrain, target: (i32, i
         input::run(hwnd, &[Step::Click { x: sx, y: sy }])?;
         sleep(350);
         let new = near(hwnd, pos).ok_or("leitura da posição implausível")?;
-        if let zen_core::navegacao::Verdict::NoProgress { .. } = prog.update(ms(), new, route(new, target).map(|p| p.len()).unwrap_or(usize::MAX)) {
-            let m = format!("sem progresso no ajuste final: {}", prog.describe(ms()));
-            tracing::warn!(hwnd, "{m}");
-            save_error_shot(hwnd, &m);
-            return Err(m);
-        }
         if new == pos {
             stuck += 1;
             if force_close_storage(hwnd) {
@@ -508,7 +431,6 @@ pub fn prepare_route_retry(hwnd: isize, status: &dyn Fn(String)) -> Result<(),St
     status("movimento não confirmado: fechando obstruções antes de uma retentativa".into());
     force_close_storage(hwnd);
     close_npc_dialog(hwnd);
-    close_stray_shop(hwnd);
     if map_open(hwnd) { input::run(hwnd,&[Step::Key(VK_M)])?;sleep(300); }
     Ok(())
 }
