@@ -70,7 +70,9 @@ impl Terrain {
             return Err(TerrainError::Header(hdr));
         }
         let tiles = d[4..].chunks_exact(per_tile).map(|c| c[0]).collect();
-        Ok(Self { world: hdr[1], tiles })
+        let t = Self { world: hdr[1], tiles };
+        let extra = extra_blocked(t.world);
+        Ok(if extra.is_empty() { t } else { t.with_blocked(&extra) })
     }
 
     pub fn attr(&self, x: i32, y: i32) -> Option<u8> {
@@ -311,4 +313,24 @@ mod distancia_tests {
         assert_eq!(d[4], 8, "(4,0): desce até y=4, passa e sobe");
         assert_eq!(d[10 * SIZE + 10], u16::MAX);
     }
+}
+
+/// Obstáculos que o arquivo do cliente marca como piso, mas onde o char trava no jogo. Valem para
+/// tudo (rotas do agente, painel, patrulha). Cada entrada: (mapa, x0, y0, x1, y1) inclusivo.
+/// - Kanturu, cristais no corredor leste (dono, 18/11 21:44): vários chars presos em (227,148)
+///   indo para o spot (225,137); a rota passava colada na parede leste (x 226-227).
+const EXTRA_BLOCKED: &[(u8, i32, i32, i32, i32)] = &[(38, 226, 144, 227, 152)];
+
+pub fn extra_blocked(world: u8) -> Vec<(i32, i32)> {
+    let mut v = Vec::new();
+    for &(w, x0, y0, x1, y1) in EXTRA_BLOCKED {
+        if w == world {
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    v.push((x, y));
+                }
+            }
+        }
+    }
+    v
 }

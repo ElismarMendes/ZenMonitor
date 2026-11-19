@@ -48,3 +48,11 @@ fn posicao_do_mundo_vira_tile() {
     assert_eq!(world_to_tile(15950.0), 159);
     assert_eq!(world_to_tile(16000.0), 160);
 }
+
+#[test]
+fn kanturu_corredor_dos_cristais_fica_fora_da_rota() {
+    let t = load("EncTerrain38.att");
+    assert!(!t.walkable(227, 148), "(227,148) travava os chars: bloqueado de propósito");
+    let rota = t.path((224, 160), (225, 137)).expect("ainda há caminho pelo meio do corredor");
+    assert!(rota.iter().all(|&(x, y)| !(226..=227).contains(&x) || !(144..=152).contains(&y)), "rota passou colada nos cristais: {rota:?}");
+}
